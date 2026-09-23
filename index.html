@@ -50,12 +50,12 @@ input[type=range]{accent-color:var(--trace);width:min(320px,100%);min-height:36p
 .status{font-size:13px;color:var(--muted)}
 .warn{background:var(--warn-bg);color:var(--warn-ink);border-radius:8px;padding:8px 12px;font-size:13px;line-height:1.5;max-width:70ch}
 .chart{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:8px 8px 4px;position:relative}
-#spec{display:block;width:100%;height:clamp(260px,50vh,560px);touch-action:pan-y}
+#spec{display:block;width:100%;height:clamp(260px,50vh,560px);touch-action:none;-webkit-user-select:none;user-select:none}
 #wave{display:block;width:100%;height:84px;touch-action:pan-y}
 .wavebox{border-top:1px solid var(--grid);margin-top:4px;padding-top:2px}
 .readout{position:absolute;top:12px;right:16px;display:flex;flex-direction:column;align-items:flex-end;gap:4px;pointer-events:none}
 .chip{font:500 13px var(--mono);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:2px 8px;font-variant-numeric:tabular-nums}
-.chip.peak{color:var(--trace)} .chip.cur{color:var(--cursor)} .chip.cmp{color:var(--trace2)}
+.chip.zoomhint{color:var(--muted);white-space:normal;max-width:260px;text-align:right} .chip.peak{color:var(--trace)} .chip.cur{color:var(--cursor)} .chip.cmp{color:var(--trace2)}
 .facts{display:flex;flex-wrap:wrap;gap:6px 20px;font-size:13px;color:var(--muted);padding:0 4px}
 .facts b{font:500 14px var(--mono);color:var(--ink);font-variant-numeric:tabular-nums}
 .controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
@@ -120,6 +120,7 @@ details ul{padding-left:1.2em;margin:.4em 0}
 <canvas id="spec" aria-label="周波数スペクトルのグラフ。グラフをタップするとその周波数の値を読み取れます。"></canvas>
 <div class="readout">
 <span class="chip peak" id="peak">ピーク —</span>
+<span class="chip zoomhint hidden" id="zoomhint"></span>
 <span class="chip cur hidden" id="cur"></span>
 <span class="chip cmp hidden" id="cmp">比較データ</span>
 </div>
@@ -160,6 +161,7 @@ details ul{padding-left:1.2em;margin:.4em 0}
 </div>
 <div class="ctl">
 <h2>横軸の範囲</h2>
+<p class="hint">グラフを2本指でつまむと拡大・縮小、2本指のまま動かすと左右に移動できます。</p>
 <div class="seg" role="group" aria-label="横軸の範囲" id="rseg"></div>
 <div class="row">
 <input class="num" id="x-min" type="number" inputmode="decimal" min="0" step="1" value="0" aria-label="横軸の開始（Hz）">
@@ -318,7 +320,7 @@ return tmpBuf;
 const curFs=()=>S.src==="test"?TEST_FS:S.src==="mic"?(actx?actx.sampleRate:micFs):fileFs;
 /* ---------- state for drawing ---------- */
 let amps=new Float32Array(S.N/2+1),waveCopy=new Float32Array(S.N),hasData=false,dataFs=TEST_FS,dataN=S.N;
-let snap=null, ymax=0.6;
+let snap=null, ymax=0.6, lastPxPerBin=0;
 function compute(){
 const x=getSamples(); if(!x){hasData=false;return;}
 if(amps.length!==S.N/2+1) amps=new Float32Array(S.N/2+1);
@@ -332,7 +334,7 @@ function readCss(){const cs=getComputedStyle(document.documentElement);["ink","m
 function fit(cv,ctx){const r=cv.getBoundingClientRect(),d=window.devicePixelRatio||1; const w=Math.round(r.width*d),h=Math.round(r.height*d); if(cv.width!==w||cv.height!==h){cv.width=w;cv.height=h;} ctx.setTransform(d,0,0,d,0,0); return [r.width,r.height];}
 const M={l:58,r:14,t:14,b:38};
 function niceStep(range,target){const raw=range/target,p=Math.pow(10,Math.floor(Math.log10(raw))),m=raw/p;return (m<1.5?1:m<3.5?2:m<7.5?5:10)*p;}
-const fmtHz=v=>v>=1000?(+(v/1000).toFixed(v%1000?1:0))+"k":String(+v.toFixed(v<10?1:0));
+const fmtHz=v=>v>=1000&&v%100===0?(+(v/1000).toFixed(v%1000?1:0))+"k":String(+v.toFixed(v<10?1:0));
 function xLo(){return S.xs==="log"?Math.max(S.xMin,20):S.xMin;}
 function fx(f,W){const lo=xLo(),hi=S.xMax; const u=S.xs==="log"?Math.log(f/lo)/Math.log(hi/lo):(f-lo)/(hi-lo); return M.l+u*(W-M.l-M.r);}
 function xf(px,W){const lo=xLo(),hi=S.xMax,u=(px-M.l)/(W-M.l-M.r); return S.xs==="log"?lo*Math.pow(hi/lo,u):lo+u*(hi-lo);}
@@ -347,6 +349,7 @@ for(let i=0;i<n;i++){const k=k0+i; X[i]=fx(k*df,W); Y[i]=fy(val(A[k]),H);}
 const base=H-M.b; g.save(); g.beginPath(); g.rect(M.l,M.t-2,W-M.l-M.r,H-M.t-M.b+2); g.clip();
 g.globalAlpha=alpha; g.strokeStyle=color; g.fillStyle=color; g.lineJoin="round";
 const pxPerBin=(W-M.l-M.r)/Math.max(1,n);
+if(alpha===1) lastPxPerBin=pxPerBin;
 if(mode==="point"){
 const r=pxPerBin>6?3:pxPerBin>2.5?2:1.3; g.beginPath();
 for(let i=0;i<n;i++){g.moveTo(X[i]+r,Y[i]);g.arc(X[i],Y[i],r,0,Math.PI*2);} g.fill();
@@ -413,6 +416,9 @@ ce.textContent=`${f.toFixed(df<1?2:1)} Hz → ${v}`; ce.classList.remove("hidden
 else ce.classList.add("hidden");
 } else ce.classList.add("hidden");
 $("#cmp").classList.toggle("hidden",!snap);
+const zh=$("#zoomhint"), showZ=hasData&&lastPxPerBin>18;
+zh.classList.toggle("hidden",!showZ);
+if(showZ) zh.textContent=`点の間隔 Δf = ${(dataFs/dataN).toFixed(1)} Hz。拡大しても細かくはなりません。N を大きくしてみよう`;
 drawWave();
 }
 function drawWave(){
@@ -475,10 +481,53 @@ $("#snap").addEventListener("click",()=>{ if(!hasData) return; snap={a:amps.slic
 $("#snapclear").addEventListener("click",()=>{snap=null; $("#snapclear").classList.add("hidden"); dirty=true;});
 function setCursor(ev){ const r=spec.getBoundingClientRect(),x=ev.clientX-r.left,y=ev.clientY-r.top;
 if(x<M.l||x>r.width-M.r||y<M.t||y>r.height-M.b){S.cursorF=null;} else S.cursorF=xf(x,r.width); dirty=true; }
-let down=false;
-spec.addEventListener("pointerdown",e=>{down=true;setCursor(e);});
-spec.addEventListener("pointermove",e=>{if(down) setCursor(e);});
-["pointerup","pointercancel","pointerleave"].forEach(t=>spec.addEventListener(t,()=>down=false));
+/* pinch zoom: changes the displayed range only (Δf is set by N) */
+const pts=new Map(); let pinch=null;
+const plotW=()=>spec.getBoundingClientRect().width-M.l-M.r;
+const nyq=()=>curFs()/2;
+function toU(f){ return S.xs==="log"?Math.log(Math.max(f,1)):f; }
+function fromU(u){ return S.xs==="log"?Math.exp(u):u; }
+function startPinch(){
+const [a,b]=[...pts.values()], r=spec.getBoundingClientRect();
+const cx=(a.x+b.x)/2-r.left, d=Math.max(20,Math.abs(a.x-b.x));
+const u0=toU(xLo()), u1=toU(S.xMax);
+pinch={d, span:u1-u0, uc:u0+(cx-M.l)/plotW()*(u1-u0)}; S.cursorF=null;
+}
+function movePinch(){
+const [a,b]=[...pts.values()], r=spec.getBoundingClientRect();
+const cx=(a.x+b.x)/2-r.left, d=Math.max(20,Math.abs(a.x-b.x));
+const lo=S.xs==="log"?toU(20):0, hi=toU(nyq());
+const minSpan=S.xs==="log"?Math.log(1.02):Math.max(10,curFs()/S.N*4);
+let span=Math.min(hi-lo,Math.max(minSpan,pinch.span*pinch.d/d));
+let u0=pinch.uc-(cx-M.l)/plotW()*span;
+u0=Math.max(lo,Math.min(u0,hi-span));
+S.xMin=Math.max(0,+fromU(u0).toFixed(1)); S.xMax=+fromU(u0+span).toFixed(1);
+$("#x-min").value=Math.round(S.xMin); $("#x-max").value=Math.round(S.xMax); press("[data-r]","r",-1); dirty=true;
+}
+spec.addEventListener("pointerdown",e=>{
+spec.setPointerCapture&&spec.setPointerCapture(e.pointerId);
+pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+if(pts.size===2){ startPinch(); } else if(pts.size===1){ setCursor(e); }
+});
+spec.addEventListener("pointermove",e=>{
+if(!pts.has(e.pointerId)) return;
+pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+if(pts.size>=2&&pinch) movePinch(); else if(pts.size===1&&!pinch) setCursor(e);
+});
+function endPt(e){ pts.delete(e.pointerId); if(pts.size<2) pinch=null; if(pts.size===2) startPinch(); }
+["pointerup","pointercancel"].forEach(t=>spec.addEventListener(t,endPt));
+["gesturestart","gesturechange"].forEach(t=>spec.addEventListener(t,e=>e.preventDefault()));
+spec.addEventListener("wheel",e=>{
+if(!e.ctrlKey) return; e.preventDefault(); const r=spec.getBoundingClientRect(), cx=e.clientX-r.left;
+const u0=toU(xLo()), u1=toU(S.xMax), uc=u0+(cx-M.l)/plotW()*(u1-u0);
+const k=Math.exp(e.deltaY*0.01);
+const lo=S.xs==="log"?toU(20):0, hi=toU(nyq());
+const minSpan=S.xs==="log"?Math.log(1.02):Math.max(10,curFs()/S.N*4);
+const span=Math.min(hi-lo,Math.max(minSpan,(u1-u0)*k));
+let n0=uc-(cx-M.l)/plotW()*span; n0=Math.max(lo,Math.min(n0,hi-span));
+S.xMin=Math.max(0,+fromU(n0).toFixed(1)); S.xMax=+fromU(n0+span).toFixed(1);
+$("#x-min").value=Math.round(S.xMin); $("#x-max").value=Math.round(S.xMax); press("[data-r]","r",-1); dirty=true;
+},{passive:false});
 new ResizeObserver(()=>dirty=true).observe(spec);
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change",()=>dirty=true);
 new MutationObserver(()=>dirty=true).observe(document.documentElement,{attributes:true,attributeFilter:["data-theme"]});
