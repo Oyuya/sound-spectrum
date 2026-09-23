@@ -222,7 +222,9 @@ const TEST_FS=48000;
 const S={src:"test",N:4096,mode:"line",y:"lin",win:"hann",xs:"lin",xMin:0,xMax:2000,frozen:false,
 wave:"sine",f:440,f2:450,toneOn:false,cursorF:null,mf:220,mtoneOn:false};
 let actx=null, dirty=true;
-const getCtx=()=>{ if(!actx){const AC=window.AudioContext||window.webkitAudioContext; actx=new AC();} if(actx.state==="suspended") actx.resume(); return actx; };
+const setSession=t=>{ try{ if(navigator.audioSession) navigator.audioSession.type=t; }catch(e){} };
+setSession("playback");
+const getCtx=()=>{ if(!actx){const AC=window.AudioContext||window.webkitAudioContext; actx=new AC(); try{const b=actx.createBuffer(1,1,22050),s=actx.createBufferSource(); s.buffer=b; s.connect(actx.destination); s.start(0);}catch(e){}} if(actx.state!=="running"){ try{ actx.resume(); }catch(e){} } return actx; };
 /* ---------- FFT ---------- */
 let fN=0,rev,cosT,sinT,re,im,winArr=null,winKey="",winSum=1;
 function prepFFT(N){
@@ -286,7 +288,7 @@ const warn=$("#mic-warn"); warn.classList.add("hidden");
 if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){showMicWarn();return;}
 try{
 const c=getCtx();
-micStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+setSession("play-and-record"); micStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
 micSrc=c.createMediaStreamSource(micStream);
 ring.fill(0); ringPos=0;
 analyser=c.createScriptProcessor(4096,1,1);
@@ -304,7 +306,7 @@ w.textContent= (e&&e.name==="NotAllowedError")
 ? "マイクの使用が許可されませんでした。Safari のアドレスバー左の「ぁあ」→ Webサイトの設定 → マイク を「許可」にして、もう一度押してください。"
 : "この開き方ではマイクが使えません。先生が用意した https:// で始まるURLから開いてください。テスト音と音声ファイルはこのまま使えます。";
 }
-function stopMic(){ if(micStream){micStream.getTracks().forEach(t=>t.stop());micStream=null;} try{micSrc&&micSrc.disconnect(); analyser&&analyser.disconnect();}catch(e){} if(analyser) analyser.onaudioprocess=null; analyser=null; $("#mic-start").textContent="マイクを開始"; $("#mic-status").textContent="声や楽器の音をマイクに向けて出してみよう。"; }
+function stopMic(){ setSession("playback"); if(micStream){micStream.getTracks().forEach(t=>t.stop());micStream=null;} try{micSrc&&micSrc.disconnect(); analyser&&analyser.disconnect();}catch(e){} if(analyser) analyser.onaudioprocess=null; analyser=null; $("#mic-start").textContent="マイクを開始"; $("#mic-status").textContent="声や楽器の音をマイクに向けて出してみよう。"; }
 /* file */
 let fileMono=null,fileFs=48000,fileDur=0,fileNode=null,filePlaying=false,filePos=0,fileT0=0;
 function filePosNow(){ return filePlaying? Math.min(fileDur, filePos+(actx.currentTime-fileT0)) : filePos; }
@@ -643,7 +645,7 @@ new ResizeObserver(()=>dirty=true).observe(spec);
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change",()=>dirty=true);
 new MutationObserver(()=>dirty=true).observe(document.documentElement,{attributes:true,attributeFilter:["data-theme"]});
 document.fonts&&document.fonts.ready.then(()=>dirty=true);
-document.addEventListener("visibilitychange",()=>{ if(document.hidden){ S.toneOn=false; syncTone(); S.mtoneOn=false; syncMakeTone(); } });
+document.addEventListener("visibilitychange",()=>{ if(document.hidden){ S.toneOn=false; syncTone(); S.mtoneOn=false; syncMakeTone(); } else if(actx&&actx.state!=="running"){ try{ actx.resume(); }catch(e){} } });
 updateFacts(); requestAnimationFrame(loop);
 })();
 </script>
