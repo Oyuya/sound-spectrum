@@ -433,7 +433,7 @@ if(S.avg) applyAvg(x);
 /* ---------- drawing ---------- */
 const spec=$("#spec"),wave=$("#wave"),g=spec.getContext("2d"),gw=wave.getContext("2d");
 let css={};
-function readCss(){const cs=getComputedStyle(document.documentElement);["ink","muted","line","grid","grid2","trace","trace2","cursor","panel"].forEach(k=>css[k]=cs.getPropertyValue("--"+k).trim());}
+function readCss(){const cs=getComputedStyle(document.documentElement);["ink","muted","line","grid","grid2","trace","trace2","cmp2","cmp3","cursor","panel"].forEach(k=>css[k]=cs.getPropertyValue("--"+k).trim());}
 function fit(cv,ctx){const r=cv.getBoundingClientRect(),d=window.devicePixelRatio||1; const w=Math.round(r.width*d),h=Math.round(r.height*d); if(cv.width!==w||cv.height!==h){cv.width=w;cv.height=h;} ctx.setTransform(d,0,0,d,0,0); return [r.width,r.height];}
 const M={l:58,r:14,t:14,b:38};
 function niceStep(range,target){const raw=range/target,p=Math.pow(10,Math.floor(Math.log10(raw))),m=raw/p;return (m<1.5?1:m<3.5?2:m<7.5?5:10)*p;}
