@@ -73,6 +73,13 @@ details ul{padding-left:1.2em;margin:.4em 0}
 .pad figcaption{font-size:12.5px;color:var(--muted)}
 #drawwave,#harm{display:block;width:100%;height:190px;background:var(--bg);border:1px solid var(--line);border-radius:8px;touch-action:none;-webkit-user-select:none;user-select:none}
 .makenote{flex-basis:100%;max-width:75ch}
+.reclist{flex-basis:100%;display:flex;flex-direction:column;gap:6px}
+.recitem{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
+.recitem .nm{font-weight:700}
+.recitem .meta{font:13px var(--mono);color:var(--muted)}
+.recitem .sp{flex:1}
+.btn.sm{min-height:36px;padding:0 10px;font-size:13px}
+.btn.danger{color:var(--cursor);border-color:var(--cursor)}
 @media (max-width:560px){ h1{font-size:18px} .seg button{padding:0 9px;font-size:13px} }
 </style>
 <div class="app">
@@ -92,8 +99,10 @@ details ul{padding-left:1.2em;margin:.4em 0}
 </header>
 <section class="source" id="panel-mic" hidden>
 <button class="btn primary" id="mic-start">マイクを開始</button>
+<button class="btn" id="rec" aria-pressed="false" disabled>● 録音</button>
 <span class="status" id="mic-status">声や楽器の音をマイクに向けて出してみよう。</span>
 <div class="warn hidden" id="mic-warn"></div>
+<div class="reclist" id="reclist"></div>
 </section>
 <section class="source" id="panel-test">
 <div class="seg" role="group" aria-label="テスト音の波形">
@@ -155,6 +164,7 @@ details ul{padding-left:1.2em;margin:.4em 0}
 <section class="source" id="panel-file" hidden>
 <label class="btn primary" for="file-in">ファイルを選ぶ<input id="file-in" type="file" accept="audio/*,.m4a,.mp3,.wav,.aac" style="position:absolute;opacity:0;width:1px;height:1px"></label>
 <button class="btn" id="file-play" disabled>再生</button>
+<button class="btn" id="file-export" disabled>書き出す（WAV）</button>
 <input type="range" id="file-seek" min="0" max="1000" step="1" value="0" disabled aria-label="再生位置">
 <span class="status" id="file-status">ボイスメモなどで録音した音を読み込めます。一時停止中はその位置を分析します。</span>
 </section>
@@ -225,6 +235,7 @@ details ul{padding-left:1.2em;margin:.4em 0}
 <li>「振幅（そのまま）」は、最大音量を 1 とした相対値です。マイクごとに周波数による感度の違いがあるので、機種が違う端末どうしで振幅の大きさを比べるのは避けてください。</li>
 <li>ピークの周波数は、実際には表示値の ±Δf/2 の範囲にあります。精密に読むときは「分析に使う点の数」を増やしてください。点を増やすほど長い時間（131072点なら約2.7秒）変化しない音が必要になります。</li>
 <li>「音を出す」を使うと、スピーカーを鳴らす発振器として振動の観察実験にも使えます。音量に注意してください。</li>
+<li>マイクモードの「録音」は最大60秒です。録音はそのiPadのSafariの中に保存されますが、Safariの履歴・Webサイトデータを消したり、長い間このページを開かなかったりすると消えることがあります。残したい録音は「書き出す」で「ファイル」アプリなどに保存してください。</li>
 </ul>
 </details>
 </div>
@@ -308,10 +319,10 @@ setSession("play-and-record"); micStream=await navigator.mediaDevices.getUserMed
 micSrc=c.createMediaStreamSource(micStream);
 ring.fill(0); ringPos=0;
 analyser=c.createScriptProcessor(4096,1,1);
-analyser.onaudioprocess=ev=>{const d=ev.inputBuffer.getChannelData(0); for(let i=0;i<d.length;i++){ring[ringPos]=d[i]; ringPos=(ringPos+1)%RING;}};
+analyser.onaudioprocess=ev=>{const d=ev.inputBuffer.getChannelData(0); for(let i=0;i<d.length;i++){ring[ringPos]=d[i]; ringPos=(ringPos+1)%RING;} if(recOn){ recChunks.push(new Float32Array(d)); recLen+=d.length; if(recLen>=REC_MAX*micFs) setTimeout(stopRec,0); }};
 micMute=c.createGain(); micMute.gain.value=0;
 micSrc.connect(analyser); analyser.connect(micMute); micMute.connect(c.destination);
-micFs=c.sampleRate; $("#mic-start").textContent="マイクを止める";
+micFs=c.sampleRate; $("#mic-start").textContent="マイクを止める"; setTimeout(updRecUI,0);
 $("#mic-status").textContent="マイク入力中";
 updateFacts(); dirty=true;
 }catch(e){showMicWarn(e);}
@@ -322,7 +333,7 @@ w.textContent= (e&&e.name==="NotAllowedError")
 ? "マイクの使用が許可されませんでした。Safari のアドレスバー左の「ぁあ」→ Webサイトの設定 → マイク を「許可」にして、もう一度押してください。"
 : "この開き方ではマイクが使えません。先生が用意した https:// で始まるURLから開いてください。テスト音と音声ファイルはこのまま使えます。";
 }
-function stopMic(){ setSession("playback"); if(micStream){micStream.getTracks().forEach(t=>t.stop());micStream=null;} try{micSrc&&micSrc.disconnect(); analyser&&analyser.disconnect();}catch(e){} if(analyser) analyser.onaudioprocess=null; analyser=null; $("#mic-start").textContent="マイクを開始"; $("#mic-status").textContent="声や楽器の音をマイクに向けて出してみよう。"; }
+function stopMic(){ if(recOn) stopRec(); setSession("playback"); if(micStream){micStream.getTracks().forEach(t=>t.stop());micStream=null;} try{micSrc&&micSrc.disconnect(); analyser&&analyser.disconnect();}catch(e){} if(analyser) analyser.onaudioprocess=null; analyser=null; $("#mic-start").textContent="マイクを開始"; $("#mic-status").textContent="声や楽器の音をマイクに向けて出してみよう。"; updRecUI(); }
 /* file */
 let fileMono=null,fileFs=48000,fileDur=0,fileNode=null,filePlaying=false,filePos=0,fileT0=0;
 function filePosNow(){ return filePlaying? Math.min(fileDur, filePos+(actx.currentTime-fileT0)) : filePos; }
@@ -340,11 +351,7 @@ $("#file-status").textContent="読み込み中…";
 try{
 const c=getCtx(); const ab=await f.arrayBuffer();
 const buf=await new Promise((res,rej)=>{const p=c.decodeAudioData(ab,res,rej); if(p&&p.catch) p.catch(rej);});
-fileStop(false); fileAudio=buf; fileFs=buf.sampleRate; fileDur=buf.duration; filePos=0;
-const L=buf.length,ch=buf.numberOfChannels; fileMono=new Float32Array(L);
-for(let i=0;i<ch;i++){const d=buf.getChannelData(i);for(let n=0;n<L;n++) fileMono[n]+=d[n]/ch;}
-$("#file-play").disabled=false; $("#file-seek").disabled=false;
-$("#file-status").textContent=f.name; updateFacts(); dirty=true;
+useAudioBuffer(buf,f.name);
 }catch(e){ $("#file-status").textContent="このファイルは読み込めませんでした。m4a / mp3 / wav 形式を試してください。"; }
 });
 $("#file-play").addEventListener("click",()=>{ if(filePlaying) fileStop(true); else filePlay(); dirty=true; });
@@ -625,6 +632,52 @@ for(let k=k0;k<=k1;k++){ const c=Math.round(fx(k*pdf,W)-pl); if(c>=0&&c<=cols&&D
 g.fillStyle=css.trace2; g.globalAlpha=0.22; g.beginPath(); g.moveTo(pl,pb); for(let c=0;c<=cols;c++) g.lineTo(pl+c,pb-cm[c]*hh); g.lineTo(pl+cols,pb); g.closePath(); g.fill();
 g.globalAlpha=1; g.strokeStyle=css.trace2; g.lineWidth=1.5; g.beginPath(); for(let c=0;c<=cols;c++){ const y=pb-cm[c]*hh; c?g.lineTo(pl+c,y):g.moveTo(pl,y);} g.stroke(); }
 g.restore(); }
+/* ---------- recording ---------- */
+const REC_MAX=60; let recOn=false, recChunks=[], recLen=0, recT0=0, recs=[], recDB=null, recTimer=null, fileLabel="sound";
+function useAudioBuffer(buf,name){ fileStop(false); fileAudio=buf; fileFs=buf.sampleRate; fileDur=buf.duration; filePos=0;
+const L=buf.length,ch=buf.numberOfChannels; fileMono=new Float32Array(L);
+for(let i=0;i<ch;i++){const d=buf.getChannelData(i);for(let n=0;n<L;n++) fileMono[n]+=d[n]/ch;}
+$("#file-play").disabled=false; $("#file-seek").disabled=false; $("#file-export").disabled=false; $("#file-seek").value=0;
+fileLabel=name.replace(/\.[^.]+$/,""); $("#file-status").textContent=name; updateFacts(); dirty=true; }
+function idbOpen(){ return new Promise(res=>{ try{ const rq=indexedDB.open("spectrum-rec",1); rq.onupgradeneeded=()=>rq.result.createObjectStore("recs",{keyPath:"id",autoIncrement:true}); rq.onsuccess=()=>res(rq.result); rq.onerror=()=>res(null); rq.onblocked=()=>res(null); }catch(e){ res(null); } }); }
+function idbReq(mode,fn){ return new Promise(res=>{ if(!recDB){ res(null); return; } try{ const t=recDB.transaction("recs",mode), rq=fn(t.objectStore("recs")); rq.onsuccess=()=>res(rq.result); rq.onerror=()=>res(null); }catch(e){ res(null); } }); }
+async function initRecs(){ recDB=await idbOpen(); const all=await idbReq("readonly",s=>s.getAll()); if(all) recs=all.sort((a,b)=>b.date-a.date); renderRecs(); }
+function nextNo(){ let m=0; for(const r of recs){ const x=parseInt(String(r.name).replace(/\D/g,""),10); if(x>m) m=x; } return m+1; }
+function pad2(n){ return String(n).padStart(2,"0"); }
+function fmtDate(t){ const d=new Date(t); return `${d.getMonth()+1}/${d.getDate()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`; }
+function stamp(t){ const d=new Date(t); return `${d.getFullYear()}${pad2(d.getMonth()+1)}${pad2(d.getDate())}-${pad2(d.getHours())}${pad2(d.getMinutes())}`; }
+function updRecUI(){ const b=$("#rec"); b.disabled=!analyser; b.setAttribute("aria-pressed",recOn); b.textContent=recOn?"■ 録音を止める":"● 録音";
+if(recOn){ if(!recTimer) recTimer=setInterval(updRecUI,200); $("#mic-status").textContent=`録音中 ${(recLen/micFs).toFixed(1)} 秒（最大 ${REC_MAX} 秒）`; }
+else if(recTimer){ clearInterval(recTimer); recTimer=null; } }
+function startRec(){ if(!analyser||recOn) return; recChunks=[]; recLen=0; recOn=true; updRecUI(); }
+async function stopRec(){ if(!recOn) return; recOn=false; updRecUI();
+const pcm=new Float32Array(recLen); let o=0; for(const c of recChunks){ pcm.set(c.subarray(0,Math.min(c.length,recLen-o)),o); o+=c.length; if(o>=recLen) break; } recChunks=[];
+if(recLen<micFs*0.2){ $("#mic-status").textContent="録音が短すぎたため保存しませんでした。"; return; }
+const rec={name:`録音 ${nextNo()}`, date:Date.now(), sr:micFs, pcm};
+const id=await idbReq("readwrite",s=>s.add(rec)); rec.id=(id!=null)?id:("m"+Date.now()); recs.unshift(rec); renderRecs();
+$("#mic-status").textContent=`${rec.name}（${(pcm.length/rec.sr).toFixed(1)} 秒）を保存しました。「開いて分析」で時間を動かして見られます。`; }
+function mkBtn(t,fn,cls){ const b=document.createElement("button"); b.className="btn sm"+(cls?" "+cls:""); b.textContent=t; if(fn) b.addEventListener("click",fn); return b; }
+function renderRecs(){ const el=$("#reclist"); el.textContent=""; if(!recs.length) return;
+const h=document.createElement("div"); h.className="status"; h.textContent=recDB?"録音した音（このiPadのSafariの中に保存されます。確実に残すには「書き出す」）":"録音した音（この開き方では保存できないため、ページを閉じると消えます）"; el.appendChild(h);
+for(const r of recs){ const row=document.createElement("div"); row.className="recitem";
+const nm=document.createElement("span"); nm.className="nm"; nm.textContent=r.name;
+const mt=document.createElement("span"); mt.className="meta"; mt.textContent=`${(r.pcm.length/r.sr).toFixed(1)} 秒 · ${fmtDate(r.date)}`;
+const sp=document.createElement("span"); sp.className="sp";
+const bo=mkBtn("開いて分析",()=>openRec(r)); const be=mkBtn("書き出す",()=>exportPCM(r.pcm,r.sr,`${recBase(r)}.wav`)); const bd=mkBtn("削除",null,"danger");
+bd.addEventListener("click",async()=>{ if(bd.dataset.armed!=="1"){ bd.dataset.armed="1"; bd.textContent="もう一度押すと削除"; setTimeout(()=>{ bd.dataset.armed=""; bd.textContent="削除"; },3000); return; }
+if(typeof r.id==="number") await idbReq("readwrite",s=>s.delete(r.id)); recs=recs.filter(x=>x!==r); renderRecs(); });
+row.append(nm,mt,sp,bo,be,bd); el.appendChild(row); } }
+function recBase(r){ return `rec${String(r.name).replace(/\D/g,"")||1}_${stamp(r.date)}`; }
+function openRec(r){ const c=getCtx(); const buf=c.createBuffer(1,r.pcm.length,r.sr); buf.getChannelData(0).set(r.pcm); setSrc("file"); useAudioBuffer(buf,`${r.name}（${(r.pcm.length/r.sr).toFixed(1)} 秒）`); fileLabel=recBase(r); }
+function wavBlob(pcm,sr){ const n=pcm.length, ab=new ArrayBuffer(44+n*2), v=new DataView(ab); const ws=(o,s)=>{ for(let i=0;i<s.length;i++) v.setUint8(o+i,s.charCodeAt(i)); };
+ws(0,"RIFF"); v.setUint32(4,36+n*2,true); ws(8,"WAVE"); ws(12,"fmt "); v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true); v.setUint32(24,sr,true); v.setUint32(28,sr*2,true); v.setUint16(32,2,true); v.setUint16(34,16,true); ws(36,"data"); v.setUint32(40,n*2,true);
+for(let i=0;i<n;i++){ const s=Math.max(-1,Math.min(1,pcm[i])); v.setInt16(44+i*2,s<0?s*0x8000:s*0x7fff,true); }
+return new Blob([ab],{type:"audio/wav"}); }
+async function exportPCM(pcm,sr,name){ const blob=wavBlob(pcm,sr); const file=new File([blob],name,{type:"audio/wav"});
+try{ if(navigator.canShare&&navigator.canShare({files:[file]})){ await navigator.share({files:[file],title:name}); return; } }catch(e){ if(e&&e.name==="AbortError") return; }
+const url=URL.createObjectURL(blob), a=document.createElement("a"); a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),20000); }
+$("#rec").addEventListener("click",()=>{ if(recOn) stopRec(); else startRec(); });
+$("#file-export").addEventListener("click",()=>{ if(fileMono) exportPCM(fileMono,fileFs,`${/^[A-Za-z0-9._-]+$/.test(fileLabel)?fileLabel:"sound_"+stamp(Date.now())}.wav`); });
 /* ---------- UI wiring ---------- */
 function press(sel,attr,v){document.querySelectorAll(sel).forEach(b=>b.setAttribute("aria-pressed",String(b.dataset[attr]===String(v))));}
 function updateFacts(){
@@ -717,8 +770,8 @@ new ResizeObserver(()=>dirty=true).observe(spec);
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change",()=>dirty=true);
 new MutationObserver(()=>dirty=true).observe(document.documentElement,{attributes:true,attributeFilter:["data-theme"]});
 document.fonts&&document.fonts.ready.then(()=>dirty=true);
-document.addEventListener("visibilitychange",()=>{ if(document.hidden){ S.toneOn=false; syncTone(); S.mtoneOn=false; syncMakeTone(); S.ptoneOn=false; syncPaintTone(); } else if(actx&&actx.state!=="running"){ try{ actx.resume(); }catch(e){} } });
-updateFacts(); requestAnimationFrame(loop);
+document.addEventListener("visibilitychange",()=>{ if(document.hidden){ S.toneOn=false; syncTone(); S.mtoneOn=false; syncMakeTone(); S.ptoneOn=false; syncPaintTone(); if(recOn) stopRec(); } else if(actx&&actx.state!=="running"){ try{ actx.resume(); }catch(e){} } });
+updateFacts(); requestAnimationFrame(loop); initRecs();
 })();
 </script>
 </body></html>
