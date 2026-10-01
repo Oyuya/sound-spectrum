@@ -73,6 +73,8 @@ details ul{padding-left:1.2em;margin:.4em 0}
 .pad figcaption{font-size:12.5px;color:var(--muted)}
 #drawwave,#harm{display:block;width:100%;height:190px;background:var(--bg);border:1px solid var(--line);border-radius:8px;touch-action:none;-webkit-user-select:none;user-select:none}
 .makenote{flex-basis:100%;max-width:75ch}
+.beatbox{flex-basis:100%;display:flex;flex-direction:column;gap:8px}
+.beatbox p{margin:0}
 .reclist{flex-basis:100%;display:flex;flex-direction:column;gap:6px}
 .recitem{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
 .recitem .nm{font-weight:700}
@@ -121,10 +123,29 @@ details ul{padding-left:1.2em;margin:.4em 0}
 <span class="status">Hz</span>
 </div>
 <input type="range" id="f-range" min="0" max="1000" step="1" aria-label="周波数スライダー">
-<div class="row hidden" id="f2-row">
-<span class="lbl">2つ目の音</span>
-<input class="num" id="f2-num" type="number" inputmode="decimal" min="20" max="20000" step="1" value="450" aria-label="2つ目の音の周波数（Hz）">
+<div class="beatbox hidden" id="f2-row">
+<div class="row">
+<span class="lbl">うなりの幅</span>
+<button class="btn" id="bw-dn" aria-label="0.1Hz狭くする">−0.1</button>
+<input class="num" id="bw-num" type="number" inputmode="decimal" min="0" max="50" step="0.1" value="10" aria-label="うなりの幅（Hz）">
+<button class="btn" id="bw-up" aria-label="0.1Hz広くする">＋0.1</button>
 <span class="status">Hz</span>
+<div class="seg" role="group" aria-label="うなりの幅のひな形">
+<button data-bw="0.5" aria-pressed="false">0.5</button>
+<button data-bw="1" aria-pressed="false">1</button>
+<button data-bw="2" aria-pressed="false">2</button>
+<button data-bw="5" aria-pressed="false">5</button>
+<button data-bw="10" aria-pressed="true">10</button>
+<button data-bw="30" aria-pressed="false">30</button>
+</div>
+</div>
+<input type="range" id="bw-range" min="0" max="200" step="1" value="100" aria-label="うなりの幅スライダー（0〜20Hz）">
+<div class="row">
+<span class="lbl">2つ目の音の大きさ</span>
+<input type="range" id="bal-range" min="0" max="100" step="1" value="100" aria-label="2つ目の音の大きさ（%）">
+<span class="status" id="bal-txt">100%</span>
+</div>
+<p class="status makenote" id="bw-info"></p>
 </div>
 <button class="btn" id="tone" aria-pressed="false">音を出す</button>
 </section>
@@ -158,7 +179,15 @@ details ul{padding-left:1.2em;margin:.4em 0}
 <button data-pp="one">440 Hzの線</button>
 <button data-pp="harm">倍音の列</button>
 <button data-pp="flat">平ら（雑音）</button>
+<button data-pp="beat">うなり（2本の線）</button>
 <button data-pp="clear">すべて消す</button>
+</div>
+<div class="row hidden" id="pbeat-row">
+<span class="lbl">うなり</span>
+<input class="num" id="pb-f" type="number" inputmode="decimal" min="50" max="5000" step="1" value="440" aria-label="うなりの中心の周波数（Hz）"><span class="status">Hz を中心に、幅</span>
+<input class="num" id="pb-w" type="number" inputmode="decimal" min="0.7" max="100" step="0.1" value="2" aria-label="うなりの幅（Hz）"><span class="status">Hz</span>
+<button class="btn" id="pb-go">2本の線を立てる</button>
+<span class="status" id="pb-info"></span>
 </div>
 <button class="btn" id="ptone" aria-pressed="false">音を出す</button>
 <p class="status makenote">下のグラフに指で直接描きます。2本指でつまんで拡大してから描くと、細かい形を作れます。オレンジが描いた形、青がその音を分析した結果です。細い線ははっきりした高さの音に、幅の広い山は「ザー」という雑音に近い音になります。なお、幅の広い山は分析したときの高さが「分析に使う点の数」によって変わるので、線と山の高さはそのままでは比べられません。</p>
@@ -241,6 +270,7 @@ details ul{padding-left:1.2em;margin:.4em 0}
 <summary>先生向けメモ</summary>
 <ul>
 <li>「2つの音」で 440 Hz と 450 Hz を鳴らし、「分析に使う点の数 N」を 1024 → 8192 と変えると、2本の山が分かれて見えるかどうかで解像度（Δf）の意味を体験できます。</li>
+<li>「2つの音」の「うなりの幅」は2つの音の周波数の差で、1秒間にうなる回数と同じです。下の波形の欄には、うなりが2〜3回入る長さの波形を表示します。2つ目の音を小さくすると、音が完全には消えない「浅いうなり」になります。「描く」モードの「うなり（2本の線）」は 0.73 Hz 刻みでしか線を立てられないため、正確な幅で聞かせたいときは「テスト音」の「2つの音」を使ってください。</li>
 <li>「振幅（そのまま）」は、最大音量を 1 とした相対値です。マイクごとに周波数による感度の違いがあるので、機種が違う端末どうしで振幅の大きさを比べるのは避けてください。</li>
 <li>ピークの周波数は、実際には表示値の ±Δf/2 の範囲にあります。精密に読むときは「分析に使う点の数」を増やしてください。点を増やすほど長い時間（131072点なら約2.7秒）変化しない音が必要になります。</li>
 <li>「音を出す」を使うと、スピーカーを鳴らす発振器として振動の観察実験にも使えます。音量に注意してください。</li>
@@ -258,7 +288,7 @@ const NS=[256,512,1024,2048,4096,8192,16384,32768,65536,131072];
 const RANGES=[500,1000,2000,5000,10000,20000];
 const TEST_FS=48000;
 const S={src:"test",N:4096,mode:"line",y:"lin",win:"hann",xs:"lin",xMin:0,xMax:2000,frozen:false,
-wave:"sine",f:440,f2:450,toneOn:false,cursorF:null,mf:220,mtoneOn:false,ptoneOn:false,paintInfo:null};
+wave:"sine",f:440,f2:450,bw:10,bal:1,toneOn:false,cursorF:null,mf:220,mtoneOn:false,ptoneOn:false,paintInfo:null};
 let actx=null, dirty=true;
 const setSession=t=>{ try{ if(navigator.audioSession) navigator.audioSession.type=t; }catch(e){} };
 setSession("playback");
@@ -295,10 +325,10 @@ for(let k=0;k<=N/2;k++) out[k]=Math.hypot(re[k],im[k])*(k===0?1:2)/winSum;
 /* ---------- sources ---------- */
 let testBuf=null,testKey="";
 function genTest(){
-const N=S.N,key=[S.wave,S.f,S.f2,N].join("|"); if(key===testKey) return testBuf; testKey=key;
+const N=S.N,key=[S.wave,S.f,S.f2,S.bal,N].join("|"); if(key===testKey) return testBuf; testKey=key;
 const buf=new Float32Array(N),comps=[],lim=Math.min(TEST_FS/2,20000);
 if(S.wave==="sine") comps.push([S.f,0.5]);
-else if(S.wave==="two"){comps.push([S.f,0.35]);comps.push([S.f2,0.35]);}
+else if(S.wave==="two"){comps.push([S.f,0.35]);comps.push([S.f2,0.35*S.bal]);}
 else if(S.wave==="square"){for(let k=1;k*S.f<lim&&k<400;k+=2) comps.push([k*S.f,0.5*4/(Math.PI*k)]);}
 else {for(let k=1;k*S.f<lim&&k<200;k++) comps.push([k*S.f,0.5*2/(Math.PI*k)*(k%2?1:-1)]);}
 for(const [f,a] of comps){
@@ -315,7 +345,7 @@ const c=getCtx(); stopTone();
 if(!toneGain){toneGain=c.createGain();toneGain.connect(c.destination);}
 toneGain.gain.value=S.wave==="sine"||S.wave==="two"?0.25:0.12;
 const list=S.wave==="two"?[["sine",S.f],["sine",S.f2]]:[[S.wave,S.f]];
-for(const [t,f] of list){const o=c.createOscillator();o.type=t;o.frequency.value=f;o.connect(toneGain);o.start();oscs.push(o);}
+list.forEach(([t,f],i)=>{const o=c.createOscillator();o.type=t;o.frequency.value=f; if(i===1){ const g2=c.createGain(); g2.gain.value=S.bal; o.connect(g2); g2.connect(toneGain); o._g=g2; } else o.connect(toneGain); o.start();oscs.push(o);});
 }
 function syncTone(){ if(S.toneOn&&S.src==="test") startTone(); else stopTone(); $("#tone").setAttribute("aria-pressed",S.toneOn&&S.src==="test"); $("#tone").textContent=S.toneOn&&S.src==="test"?"音を止める":"音を出す"; }
 /* mic */
@@ -534,8 +564,25 @@ zh.classList.toggle("hidden",!showZ);
 if(showZ) zh.textContent=`点の間隔（周波数の刻み）は ${(dataFs/dataN).toFixed(dataFs/dataN<1?2:1)} Hz。拡大しても細かくはなりません。下の「分析に使う点の数」を増やしてみよう`;
 drawWave();
 }
+function beatT(){ return S.bw>0? Math.min(4,Math.max(0.2,2.5/S.bw)) : 0.5; }
+function drawBeat(W,H){
+const pl=M.l,pr=W-M.r,mid=(H-16)/2+2,amp=(H-20)/2, T=beatT(), cols=Math.max(1,Math.floor(pr-pl));
+gw.strokeStyle=css.grid; gw.beginPath(); gw.moveTo(pl,Math.round(mid)+.5); gw.lineTo(pr,Math.round(mid)+.5); gw.stroke();
+gw.font="11px "+getComputedStyle(document.documentElement).getPropertyValue("--mono"); gw.fillStyle=css.muted;
+gw.textBaseline="bottom"; gw.textAlign="left"; gw.fillText("0",pl,H-1);
+gw.textAlign="right"; gw.fillText(T.toFixed(T<1?2:1)+" 秒",pr,H-1);
+gw.textAlign="center"; gw.fillText(`うなりの様子（2つの音を合わせた波形・${T.toFixed(T<1?2:1)} 秒間）${S.bw>0?"　赤い点線＝うなり1回分の区切り":""}`,(pl+pr)/2,H-1);
+const fs=TEST_FS, n=Math.round(T*fs), a1=0.35, a2=0.35*S.bal, w1=2*Math.PI*S.f/fs, w2=2*Math.PI*S.f2/fs, mx=a1+a2||1;
+gw.strokeStyle=css.trace; gw.lineWidth=1; gw.beginPath();
+for(let c=0;c<cols;c++){ const i0=Math.floor(c*n/cols), i1=Math.floor((c+1)*n/cols); let lo=1e9,hi=-1e9;
+for(let i=i0;i<i1;i++){ const v=a1*Math.sin(w1*i)+a2*Math.sin(w2*i); if(v<lo)lo=v; if(v>hi)hi=v; }
+const x=pl+c+.5; gw.moveTo(x,mid-hi/mx*amp); gw.lineTo(x,mid-lo/mx*amp+.5); }
+gw.stroke();
+if(S.bw>0){ gw.strokeStyle=css.cursor; gw.setLineDash([3,3]); gw.beginPath(); for(let k=1;k/S.bw<T;k++){ const x=pl+(k/S.bw)/T*(pr-pl); gw.moveTo(Math.round(x)+.5,mid-amp); gw.lineTo(Math.round(x)+.5,mid+amp); } gw.stroke(); gw.setLineDash([]); }
+}
 function drawWave(){
 const [W,H]=fit(wave,gw); gw.clearRect(0,0,W,H);
+if(S.src==="test"&&S.wave==="two"){ drawBeat(W,H); return; }
 const pl=M.l,pr=W-M.r,mid=(H-16)/2+2,amp=(H-20)/2;
 gw.strokeStyle=css.grid; gw.beginPath(); gw.moveTo(pl,Math.round(mid)+.5); gw.lineTo(pr,Math.round(mid)+.5); gw.stroke();
 gw.font="11px "+getComputedStyle(document.documentElement).getPropertyValue("--mono"); gw.fillStyle=css.muted;
@@ -668,9 +715,13 @@ const f=Math.max(0,Math.min(PFS/2,xf(x,r.width))), v=Math.max(0,Math.min(1,(r.he
 if(pen==="line"){ if(first||!stroke) stroke={k:binOf(f)}; D[stroke.k]=v; S.paintInfo=`${(stroke.k*pdf).toFixed(1)} Hz の線（高さ ${v.toFixed(2)}）`; }
 else { const k=binOf(f); if(first||!stroke) D[k]=v; else { const k0=stroke.k,v0=stroke.v,a=Math.min(k0,k),b=Math.max(k0,k); for(let i=a;i<=b;i++) D[i]=k===k0?v:v0+(v-v0)*(i-k0)/(k-k0); } stroke={k,v}; S.paintInfo=`${(k*pdf).toFixed(1)} Hz（高さ ${v.toFixed(2)}）`; }
 paintChanged(true); }
-function paintPreset(p){ D.fill(0); if(p==="one") D[binOf(440)]=0.8; if(p==="harm") for(let n=1;n<=10;n++) D[binOf(220*n)]=0.8/n; if(p==="flat") for(let k=binOf(100);k<=binOf(8000);k++) D[k]=0.4; paintChanged(false); }
+function paintPreset(p){ D.fill(0); if(p==="one") D[binOf(440)]=0.8; if(p==="harm") for(let n=1;n<=10;n++) D[binOf(220*n)]=0.8/n; if(p==="flat") for(let k=binOf(100);k<=binOf(8000);k++) D[k]=0.4; if(p==="beat") return; paintChanged(false); }
+function paintBeat(){ const c=parseFloat($("#pb-f").value)||440, w=Math.max(0,parseFloat($("#pb-w").value)||0);
+const k1=binOf(c-w/2), k2=Math.max(k1+1,binOf(c+w/2)); D.fill(0); D[k1]=0.7; D[k2]=0.7;
+$("#pb-info").textContent=`立てた線：${(k1*pdf).toFixed(2)} Hz と ${(k2*pdf).toFixed(2)} Hz（実際の幅 ${((k2-k1)*pdf).toFixed(2)} Hz。描くモードは ${pdf.toFixed(2)} Hz 刻み）`; paintChanged(false); }
 document.querySelectorAll("[data-pen]").forEach(b=>b.addEventListener("click",()=>{pen=b.dataset.pen; press("[data-pen]","pen",pen);}));
-document.querySelectorAll("[data-pp]").forEach(b=>b.addEventListener("click",()=>paintPreset(b.dataset.pp)));
+document.querySelectorAll("[data-pp]").forEach(b=>b.addEventListener("click",()=>{ $("#pbeat-row").classList.toggle("hidden",b.dataset.pp!=="beat"); if(b.dataset.pp==="beat") paintBeat(); else paintPreset(b.dataset.pp); }));
+$("#pb-go").addEventListener("click",paintBeat); ["pb-f","pb-w"].forEach(id=>$("#"+id).addEventListener("change",paintBeat));
 $("#ptone").addEventListener("click",()=>{S.ptoneOn=!S.ptoneOn; syncPaintTone();});
 paintPreset("one");
 function drawPaintOverlay(W,H,pl,pr,pt,pb){
@@ -755,16 +806,29 @@ document.querySelectorAll("[data-mode]").forEach(b=>b.addEventListener("click",(
 document.querySelectorAll("[data-y]").forEach(b=>b.addEventListener("click",()=>{S.y=b.dataset.y;press("[data-y]","y",S.y);dirty=true;}));
 document.querySelectorAll("[data-win]").forEach(b=>b.addEventListener("click",()=>{S.win=b.dataset.win;press("[data-win]","win",S.win);if(S.frozen&&hasData){} dirty=true;}));
 document.querySelectorAll("[data-xs]").forEach(b=>b.addEventListener("click",()=>{S.xs=b.dataset.xs;press("[data-xs]","xs",S.xs);dirty=true;}));
-document.querySelectorAll("[data-wave]").forEach(b=>b.addEventListener("click",()=>{S.wave=b.dataset.wave;press("[data-wave]","wave",S.wave);$("#f2-row").classList.toggle("hidden",S.wave!=="two");syncTone();dirty=true;}));
+document.querySelectorAll("[data-wave]").forEach(b=>b.addEventListener("click",()=>{S.wave=b.dataset.wave;press("[data-wave]","wave",S.wave);$("#f2-row").classList.toggle("hidden",S.wave!=="two");updBeat();syncTone();dirty=true;}));
 // frequency controls (log slider 20–5000 Hz)
 const FLO=20,FHI=5000;
 const r2f=r=>Math.round(FLO*Math.pow(FHI/FLO,r/1000)), f2r=f=>Math.round(Math.log(f/FLO)/Math.log(FHI/FLO)*1000);
-function setF(f){ f=Math.max(20,Math.min(20000,Math.round(f))); S.f=f; $("#f-num").value=f; $("#f-range").value=f2r(Math.min(f,FHI)); if(oscs[0]) oscs[0].frequency.value=f; dirty=true; }
+function setF(f){ f=Math.max(20,Math.min(20000,Math.round(f))); S.f=f; $("#f-num").value=f; $("#f-range").value=f2r(Math.min(f,FHI)); if(oscs[0]) oscs[0].frequency.value=f; updBeat(); dirty=true; }
 $("#f-range").value=f2r(S.f);
 $("#f-range").addEventListener("input",e=>setF(r2f(+e.target.value)));
 $("#f-num").addEventListener("change",e=>{const v=parseFloat(e.target.value); if(v>0) setF(v);});
 $("#f-dn").addEventListener("click",()=>setF(S.f-1)); $("#f-up").addEventListener("click",()=>setF(S.f+1));
-$("#f2-num").addEventListener("change",e=>{const v=parseFloat(e.target.value); if(v>=20&&v<=20000){S.f2=Math.round(v); if(oscs[1]) oscs[1].frequency.value=S.f2; dirty=true;}});
+function updBeat(){ S.f2=+(S.f+S.bw).toFixed(2); if(oscs[1]){ oscs[1].frequency.value=S.f2; if(oscs[1]._g) oscs[1]._g.gain.value=S.bal; }
+$("#bw-num").value=S.bw; $("#bw-range").value=Math.round(Math.min(S.bw,20)*10); press("[data-bw]","bw",S.bw);
+const fs=TEST_FS, need=S.bw>0?NS.find(n=>fs/n<=S.bw/2):null;
+$("#bw-info").textContent=S.bw>0
+? `2つ目の音は ${S.f2} Hz。1秒間に ${S.bw} 回うなります（${(1/S.bw).toFixed(S.bw>=1?2:1)} 秒に1回）。周波数分布で2本の山に分けて見るには、分析に使う点の数を ${need?need+" 以上":"131072 にしても足りない（幅が細かすぎる）"}にしてみよう。`
+: "うなりの幅が 0 なので、同じ高さの音が重なるだけでうなりません。";
+dirty=true; }
+function setBW(v){ v=Math.max(0,Math.min(50,Math.round(v*10)/10)); if(!isFinite(v)) return; S.bw=v; updBeat(); }
+$("#bw-num").addEventListener("change",e=>setBW(parseFloat(e.target.value)));
+$("#bw-range").addEventListener("input",e=>setBW(+e.target.value/10));
+$("#bw-dn").addEventListener("click",()=>setBW(S.bw-0.1)); $("#bw-up").addEventListener("click",()=>setBW(S.bw+0.1));
+document.querySelectorAll("[data-bw]").forEach(b=>b.addEventListener("click",()=>setBW(parseFloat(b.dataset.bw))));
+$("#bal-range").addEventListener("input",e=>{ S.bal=+e.target.value/100; $("#bal-txt").textContent=e.target.value+"%"; updBeat(); });
+updBeat();
 $("#tone").addEventListener("click",()=>{S.toneOn=!S.toneOn; syncTone();});
 $("#freeze").addEventListener("click",()=>{S.frozen=!S.frozen; const b=$("#freeze"); b.setAttribute("aria-pressed",S.frozen); b.textContent=S.frozen?"グラフを動かす":"グラフを止める"; dirty=true;});
 $("#snap").addEventListener("click",()=>{ if(!hasData) return; if(snaps.length>=3) snaps.shift(); const used=snaps.map(s=>s.ci); const ci=[0,1,2].find(i=>!used.includes(i));
