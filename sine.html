@@ -1,5 +1,5 @@
 <!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"></head><body style="margin:0">
-<title>正弦波のスペクトル</title>
+<title>音のスペクトル（正弦波・マイク）</title>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -86,11 +86,15 @@ details ul{padding-left:1.2em;margin:.4em 0}
 </style>
 <div class="app">
 <header>
-<h1>正弦波のスペクトル<small>縦軸＝振幅　横軸＝周波数</small></h1>
+<h1>音のスペクトル<small>縦軸＝振幅　横軸＝周波数</small></h1>
+<div class="seg" role="group" aria-label="音の入力">
+<button data-src="sine" aria-pressed="true">正弦波</button>
+<button data-src="mic" aria-pressed="false">マイク</button>
+</div>
 <div class="spacer"></div>
 <button class="btn" id="freeze" aria-pressed="false">グラフを止める</button>
 </header>
-<section class="source">
+<section class="source" id="panel-sine">
 <div class="row">
 <span class="lbl">周波数</span>
 <button class="btn" id="f-dn" aria-label="1Hz下げる">−1</button>
@@ -107,6 +111,11 @@ details ul{padding-left:1.2em;margin:.4em 0}
 <button data-fp="1000">1000</button>
 </div>
 <button class="btn primary" id="tone" aria-pressed="false">音を出す</button>
+</section>
+<section class="source" id="panel-mic" hidden>
+<button class="btn primary" id="mic-start">マイクを開始</button>
+<span class="status" id="mic-status">声や楽器の音をマイクに向けて出してみよう。</span>
+<div class="warn hidden" id="mic-warn"></div>
 </section>
 <section class="chart">
 <canvas id="spec" aria-label="周波数スペクトルのグラフ。グラフをタップするとその周波数の値を読み取れます。"></canvas>
@@ -127,7 +136,7 @@ details ul{padding-left:1.2em;margin:.4em 0}
 <div class="ctl">
 <h2>横軸の解像度（分析に使う点の数 N）</h2>
 <div class="seg" role="group" aria-label="分析に使う点の数" id="nseg"></div>
-<p class="hint">音は1秒間に48000回、点として記録されています。そのうち何点分をまとめて分析するかが N です。点を増やすと長い時間の音を使うので、周波数の刻み Δf が細かくなります。<b>Δf = 48000 ÷ N ＝ 1 ÷ 分析する時間</b></p>
+<p class="hint">音は1秒間に数万回（上の「サンプリング周波数」の回数）、点として記録されています。そのうち何点分をまとめて分析するかが N です。点を増やすと長い時間の音を使うので、周波数の刻み Δf が細かくなります。<b>Δf = サンプリング周波数 ÷ N ＝ 1 ÷ 分析する時間</b></p>
 </div>
 <div class="ctl">
 <h2>表示のしかた</h2>
@@ -167,15 +176,6 @@ details ul{padding-left:1.2em;margin:.4em 0}
 </div>
 </div>
 </div>
-<details>
-<summary>先生向けメモ</summary>
-<ul>
-<li>このページは「音のスペクトル観察」から正弦波（純音）の機能だけを取り出した版です。マイク・録音・音声ファイルなどの機能はありません。全部入りの版は <a href="./">こちら</a>。</li>
-<li>正弦波は1つの周波数だけを含む音なので、理想的にはグラフは1本の線になります。実際に山に幅があるのは、有限の時間（分析する時間）だけを切り取って分析しているためです。N を増やすと山が細くなることで確かめられます。</li>
-<li>ピークの周波数は、実際には表示値の ±Δf/2 の範囲にあります。精密に読むときは N を増やしてください。</li>
-<li>「音を出す」を使うと、スピーカーを鳴らす発振器として振動の観察実験にも使えます。音量に注意してください。iPad では本体の音量ボタンで大きさを調整します。</li>
-</ul>
-</details>
 </div>
 <script>
 (()=>{
@@ -184,7 +184,7 @@ const $=s=>document.querySelector(s);
 const NS=[256,512,1024,2048,4096,8192,16384,32768,65536,131072];
 const RANGES=[500,1000,2000,5000,10000,20000];
 const FS=48000;
-const S={N:4096,mode:"line",y:"lin",win:"hann",xs:"lin",xMin:0,xMax:2000,frozen:false,f:440,toneOn:false,cursorF:null};
+const S={src:"sine",N:4096,mode:"line",y:"lin",win:"hann",xs:"lin",xMin:0,xMax:2000,frozen:false,f:440,toneOn:false,cursorF:null};
 let actx=null, dirty=true;
 const setSession=t=>{ try{ if(navigator.audioSession) navigator.audioSession.type=t; }catch(e){} };
 setSession("playback");
@@ -215,9 +215,38 @@ if(S.toneOn){ const c=getCtx(); if(!gain){gain=c.createGain(); gain.gain.value=0
 if(!osc){ osc=c.createOscillator(); osc.type="sine"; osc.frequency.value=S.f; osc.connect(gain); osc.start(); } }
 else if(osc){ try{osc.stop()}catch(e){} osc.disconnect(); osc=null; }
 b.setAttribute("aria-pressed",S.toneOn); b.textContent=S.toneOn?"音を止める":"音を出す"; }
+/* mic */
+let micStream=null,proc=null,micSrc=null,micMute=null,micBuf=null;
+const RING=131072, ring=new Float32Array(RING); let ringPos=0;
+const curFs=()=>S.src==="mic"&&actx?actx.sampleRate:FS;
+async function startMic(){
+const warn=$("#mic-warn"); warn.classList.add("hidden");
+if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){showMicWarn();return;}
+try{
+const c=getCtx();
+setSession("play-and-record"); micStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+micSrc=c.createMediaStreamSource(micStream);
+ring.fill(0); ringPos=0;
+proc=c.createScriptProcessor(4096,1,1);
+proc.onaudioprocess=ev=>{const d=ev.inputBuffer.getChannelData(0); for(let i=0;i<d.length;i++){ring[ringPos]=d[i]; ringPos=(ringPos+1)%RING;}};
+micMute=c.createGain(); micMute.gain.value=0;
+micSrc.connect(proc); proc.connect(micMute); micMute.connect(c.destination);
+$("#mic-start").textContent="マイクを止める"; $("#mic-status").textContent="マイク入力中";
+updateFacts(); dirty=true;
+}catch(e){ setSession("playback"); showMicWarn(e); }
+}
+function showMicWarn(e){
+const w=$("#mic-warn"); w.classList.remove("hidden");
+w.textContent=(e&&e.name==="NotAllowedError")
+? "マイクの使用が許可されませんでした。Safari のアドレスバー左の「ぁあ」→ Webサイトの設定 → マイク を「許可」にして、もう一度押してください。"
+: "この開き方ではマイクが使えません。https:// で始まるURLから開いてください。正弦波はこのまま使えます。";
+}
+function stopMic(){ setSession("playback"); if(micStream){micStream.getTracks().forEach(t=>t.stop());micStream=null;} try{micSrc&&micSrc.disconnect(); proc&&proc.disconnect();}catch(e){} if(proc) proc.onaudioprocess=null; proc=null; $("#mic-start").textContent="マイクを開始"; $("#mic-status").textContent="声や楽器の音をマイクに向けて出してみよう。"; }
+function micSamples(){ if(!proc) return null; if(!micBuf||micBuf.length!==S.N) micBuf=new Float32Array(S.N);
+let st=(ringPos-S.N+RING)%RING; for(let n=0;n<S.N;n++){micBuf[n]=ring[st]; st=(st+1)%RING;} return micBuf; }
 /* drawing */
-let amps=new Float32Array(S.N/2+1),wav=new Float32Array(S.N),ymax=0.6,lastPxPerBin=0;
-function compute(){ const x=genSine(); if(amps.length!==S.N/2+1) amps=new Float32Array(S.N/2+1); wav=x; fft(x,S.N,amps); }
+let amps=new Float32Array(S.N/2+1),wav=new Float32Array(S.N),ymax=0.6,lastPxPerBin=0,hasData=false,dataFs=FS,dataN=S.N;
+function compute(){ const x=S.src==="mic"?micSamples():genSine(); if(!x){hasData=false;return;} if(amps.length!==S.N/2+1) amps=new Float32Array(S.N/2+1); if(wav.length!==S.N) wav=new Float32Array(S.N); wav.set(x); fft(x,S.N,amps); dataFs=curFs(); dataN=S.N; hasData=true; }
 const spec=$("#spec"),wave=$("#wave"),g=spec.getContext("2d"),gw=wave.getContext("2d");
 let css={};
 function readCss(){const cs=getComputedStyle(document.documentElement);["ink","muted","line","grid","grid2","trace","cursor"].forEach(k=>css[k]=cs.getPropertyValue("--"+k).trim());}
@@ -231,7 +260,7 @@ function xf(px,W){const lo=xLo(),hi=S.xMax,u=(px-M.l)/(W-M.l-M.r); return S.xs==
 const DBMIN=-100;
 function val(a){return S.y==="db"?Math.max(DBMIN,20*Math.log10(Math.max(a,1e-12))):a;}
 function fy(v,H){const u=S.y==="db"?(v-DBMIN)/(0-DBMIN):v/ymax; return H-M.b-u*(H-M.t-M.b);}
-function binsInRange(){const df=FS/S.N; return [Math.max(1,Math.ceil(xLo()/df)), Math.min(S.N/2,Math.floor(S.xMax/df)), df];}
+function binsInRange(){const df=dataFs/dataN; return [Math.max(1,Math.ceil(xLo()/df)), Math.min(dataN/2,Math.floor(S.xMax/df)), df];}
 function drawSeries(W,H){
 const [k0,k1,df]=binsInRange(); if(k1<k0) return;
 const n=k1-k0+1, X=new Float32Array(n), Y=new Float32Array(n);
@@ -254,7 +283,7 @@ g.restore(); }
 function findPeak(){const [k0,k1,df]=binsInRange(); let best=-1,bk=-1; for(let k=k0;k<=k1;k++) if(amps[k]>best){best=amps[k];bk=k;} return bk<0?null:{f:bk*df,a:best,df};}
 function draw(){
 readCss(); const [W,H]=fit(spec,g); g.clearRect(0,0,W,H);
-const pk=findPeak();
+const pk=hasData?findPeak():null;
 if(S.y==="lin"&&!S.frozen){ const t=Math.max(pk?pk.a*1.15:0,0.002); ymax=t>ymax?t:ymax*0.96+t*0.04; }
 g.font="12px "+getComputedStyle(document.body).getPropertyValue("--mono"); g.lineWidth=1;
 const pl=M.l,pr=W-M.r,pt=M.t,pb=H-M.b;
@@ -269,36 +298,45 @@ else { const st=niceStep(ymax,4), dig=Math.max(0,-Math.floor(Math.log10(st))); f
 g.strokeStyle=css.line; g.strokeRect(pl+.5,pt+.5,pr-pl-1,pb-pt-1);
 g.fillStyle=css.muted; g.textAlign="center"; g.textBaseline="bottom"; g.fillText("周波数 [Hz]",(pl+pr)/2,H-2);
 g.save(); g.translate(14,(pt+pb)/2); g.rotate(-Math.PI/2); g.textBaseline="middle"; g.fillText(S.y==="db"?"レベル [dB]":"振幅（相対値）",0,0); g.restore();
-drawSeries(W,H);
+if(hasData) drawSeries(W,H);
+else { g.fillStyle=css.muted; g.textAlign="center"; g.textBaseline="middle"; g.font="15px "+getComputedStyle(document.documentElement).getPropertyValue("--ui"); g.fillText("「マイクを開始」を押してください",(pl+pr)/2,(pt+pb)/2); }
 const pe=$("#peak");
 if(pk&&pk.a>1e-5){ const x=fx(pk.f,W),y=fy(val(pk.a),H); g.fillStyle=css.trace; g.beginPath(); g.moveTo(x,y-6); g.lineTo(x-5,y-14); g.lineTo(x+5,y-14); g.closePath(); g.fill();
 pe.textContent=`ピーク ${pk.f.toFixed(pk.df<1?2:1)} Hz（±${(pk.df/2).toFixed(1)}）`; } else pe.textContent="ピーク —";
 const ce=$("#cur");
-if(S.cursorF!=null){ const df=FS/S.N; const k=Math.max(1,Math.min(S.N/2,Math.round(S.cursorF/df))); const f=k*df;
+if(S.cursorF!=null&&hasData){ const df=dataFs/dataN; const k=Math.max(1,Math.min(dataN/2,Math.round(S.cursorF/df))); const f=k*df;
 if(f>=xLo()&&f<=S.xMax){ const x=fx(f,W),y=fy(val(amps[k]),H);
 g.strokeStyle=css.cursor; g.setLineDash([4,3]); g.beginPath(); g.moveTo(x,pt); g.lineTo(x,pb); g.stroke(); g.setLineDash([]);
 g.fillStyle=css.cursor; g.beginPath(); g.arc(x,y,4.5,0,Math.PI*2); g.fill();
 ce.textContent=`${f.toFixed(df<1?2:1)} Hz → ${S.y==="db"?val(amps[k]).toFixed(1)+" dB":amps[k].toPrecision(3)}`; ce.classList.remove("hidden"); }
 else ce.classList.add("hidden"); } else ce.classList.add("hidden");
-const zh=$("#zoomhint"), showZ=lastPxPerBin>18; zh.classList.toggle("hidden",!showZ);
-if(showZ) zh.textContent=`点の間隔（周波数の刻み）は ${(FS/S.N).toFixed(FS/S.N<1?2:1)} Hz。拡大しても細かくはなりません。下の「分析に使う点の数」を増やしてみよう`;
+const zh=$("#zoomhint"), showZ=hasData&&lastPxPerBin>18; zh.classList.toggle("hidden",!showZ);
+if(showZ) zh.textContent=`点の間隔（周波数の刻み）は ${(dataFs/dataN).toFixed(dataFs/dataN<1?2:1)} Hz。拡大しても細かくはなりません。下の「分析に使う点の数」を増やしてみよう`;
 drawWave(); }
 function drawWave(){
 const [W,H]=fit(wave,gw); gw.clearRect(0,0,W,H);
-const pl=M.l,pr=W-M.r,mid=(H-16)/2+2,amp=(H-20)/2, N=S.N;
+const pl=M.l,pr=W-M.r,mid=(H-16)/2+2,amp=(H-20)/2, N=dataN;
 gw.strokeStyle=css.grid; gw.beginPath(); gw.moveTo(pl,Math.round(mid)+.5); gw.lineTo(pr,Math.round(mid)+.5); gw.stroke();
 gw.font="11px "+getComputedStyle(document.documentElement).getPropertyValue("--mono"); gw.fillStyle=css.muted;
 gw.textBaseline="bottom"; gw.textAlign="left"; gw.fillText("0",pl,H-1);
-gw.textAlign="right"; gw.fillText((N/FS*1000).toFixed(1)+" ms",pr,H-1);
+gw.textAlign="right"; gw.fillText((N/dataFs*1000).toFixed(1)+" ms",pr,H-1);
 gw.textAlign="center"; gw.fillText("分析している区間の波形",(pl+pr)/2,H-1);
-const mx=0.5, cols=Math.max(1,Math.floor(pr-pl)); gw.strokeStyle=css.trace; gw.lineWidth=1; gw.beginPath();
+if(!hasData) return;
+let mx=0.5; if(S.src==="mic"){ mx=1e-6; for(let i=0;i<N;i++){const a=Math.abs(wav[i]); if(a>mx) mx=a;} }
+const cols=Math.max(1,Math.floor(pr-pl)); gw.strokeStyle=css.trace; gw.lineWidth=1; gw.beginPath();
 if(N<=cols*2){ for(let i=0;i<N;i++){const x=pl+i/(N-1)*(pr-pl),y=mid-wav[i]/mx*amp; i?gw.lineTo(x,y):gw.moveTo(x,y);} }
 else { for(let c=0;c<cols;c++){const a=Math.floor(c*N/cols),b=Math.floor((c+1)*N/cols); let lo=1e9,hi=-1e9; for(let i=a;i<b;i++){const v=wav[i]; if(v<lo)lo=v; if(v>hi)hi=v;} const x=pl+c+.5; gw.moveTo(x,mid-hi/mx*amp); gw.lineTo(x,mid-lo/mx*amp+.5);} }
 gw.stroke(); }
-function loop(){ requestAnimationFrame(loop); if(dirty){ if(!S.frozen) compute(); draw(); dirty=false; } }
+let lastComp=0;
+function loop(t){ requestAnimationFrame(loop); const live=S.src==="mic"&&!!proc&&!S.frozen&&(S.N<65536||t-lastComp>150);
+if(dirty||live){ if(!S.frozen){ compute(); lastComp=t; } draw(); dirty=false; } }
 /* UI */
 function press(sel,attr,v){document.querySelectorAll(sel).forEach(b=>b.setAttribute("aria-pressed",String(b.dataset[attr]===String(v))));}
-function updateFacts(){ $("#fx-n").textContent=S.N; const df=FS/S.N; $("#fx-df").textContent=(df<1?df.toFixed(2):df.toFixed(1))+" Hz"; $("#fx-t").textContent=(S.N/FS*1000).toFixed(1)+" ms"; }
+function updateFacts(){ const fs=curFs(); $("#fx-fs").textContent=fs+" Hz"; $("#fx-n").textContent=S.N; const df=fs/S.N; $("#fx-df").textContent=(df<1?df.toFixed(2):df.toFixed(1))+" Hz"; $("#fx-t").textContent=(S.N/fs*1000).toFixed(1)+" ms"; }
+function setSrc(v){ S.src=v; press("[data-src]","src",v); $("#panel-sine").hidden=v!=="sine"; $("#panel-mic").hidden=v!=="mic";
+if(v!=="sine"&&S.toneOn){ S.toneOn=false; syncTone(); } if(v!=="mic") stopMic(); hasData=false; S.cursorF=null; updateFacts(); dirty=true; }
+document.querySelectorAll("[data-src]").forEach(b=>b.addEventListener("click",()=>setSrc(b.dataset.src)));
+$("#mic-start").addEventListener("click",()=>{ if(micStream){ stopMic(); hasData=false; dirty=true; } else startMic(); });
 const nseg=$("#nseg"); NS.forEach(n=>{const b=document.createElement("button"); b.dataset.n=n; b.textContent=n; b.addEventListener("click",()=>{S.N=n;press("[data-n]","n",n);updateFacts();dirty=true;}); nseg.appendChild(b);}); press("[data-n]","n",S.N);
 const rseg=$("#rseg"); RANGES.forEach(r=>{const b=document.createElement("button"); b.dataset.r=r; b.textContent="〜"+fmtHz(r); b.addEventListener("click",()=>{S.xMin=0;S.xMax=r;$("#x-min").value=0;$("#x-max").value=r;press("[data-r]","r",r);dirty=true;}); rseg.appendChild(b);}); press("[data-r]","r",S.xMax);
 function rangeInputs(){ let a=parseFloat($("#x-min").value),b=parseFloat($("#x-max").value); if(!(a>=0)) a=0; if(!(b>a)) return; S.xMin=a; S.xMax=Math.min(b,24000); press("[data-r]","r",S.xMin===0?S.xMax:-1); dirty=true; }
@@ -323,8 +361,8 @@ const pts=new Map(); let pinch=null;
 const plotW=()=>spec.getBoundingClientRect().width-M.l-M.r;
 function toU(f){ return S.xs==="log"?Math.log(Math.max(f,1)):f; }
 function fromU(u){ return S.xs==="log"?Math.exp(u):u; }
-function applySpan(uc,cx,span){ const lo=S.xs==="log"?toU(20):0, hi=toU(FS/2);
-const minSpan=S.xs==="log"?Math.log(1.02):Math.max(10,FS/S.N*4); span=Math.min(hi-lo,Math.max(minSpan,span));
+function applySpan(uc,cx,span){ const fs=curFs(), lo=S.xs==="log"?toU(20):0, hi=toU(fs/2);
+const minSpan=S.xs==="log"?Math.log(1.02):Math.max(10,fs/S.N*4); span=Math.min(hi-lo,Math.max(minSpan,span));
 let u0=uc-(cx-M.l)/plotW()*span; u0=Math.max(lo,Math.min(u0,hi-span));
 S.xMin=Math.max(0,+fromU(u0).toFixed(1)); S.xMax=+fromU(u0+span).toFixed(1);
 $("#x-min").value=Math.round(S.xMin); $("#x-max").value=Math.round(S.xMax); press("[data-r]","r",-1); dirty=true; }
