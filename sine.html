@@ -93,6 +93,7 @@ details ul{padding-left:1.2em;margin:.4em 0}
 <div class="seg" role="group" aria-label="音の入力">
 <button data-src="sine" aria-pressed="true">正弦波</button>
 <button data-src="mic" aria-pressed="false">マイク</button>
+<button data-src="file" aria-pressed="false">音声ファイル</button>
 </div>
 <div class="spacer"></div>
 <button class="btn" id="freeze" aria-pressed="false">グラフを止める</button>
@@ -121,6 +122,13 @@ details ul{padding-left:1.2em;margin:.4em 0}
 <span class="status" id="mic-status">声や楽器の音をマイクに向けて出してみよう。</span>
 <div class="warn hidden" id="mic-warn"></div>
 <div class="reclist" id="reclist"></div>
+</section>
+<section class="source" id="panel-file" hidden>
+<label class="btn primary" for="file-in">ファイルを選ぶ<input id="file-in" type="file" accept="audio/*,.m4a,.mp3,.wav,.aac" style="position:absolute;opacity:0;width:1px;height:1px"></label>
+<button class="btn" id="file-play" disabled>再生</button>
+<input type="range" id="file-seek" min="0" max="1000" step="1" value="0" disabled aria-label="再生位置">
+<span class="status" id="file-time"></span>
+<span class="status" id="file-status">ボイスメモなどで録音した音（m4a / mp3 / wav）を読み込めます。一時停止中はその位置を分析します。</span>
 </section>
 <section class="chart">
 <div class="charthead"><h2>スペクトルアナライザ（周波数ごとの強さ）</h2></div>
@@ -238,7 +246,7 @@ b.setAttribute("aria-pressed",S.toneOn); b.textContent=S.toneOn?"音を止める
 /* mic */
 let micStream=null,proc=null,micSrc=null,micMute=null,micBuf=null;
 const RING=131072, ring=new Float32Array(RING); let ringPos=0;
-const curFs=()=>S.src==="mic"&&actx?actx.sampleRate:FS;
+const curFs=()=>S.src==="mic"&&actx?actx.sampleRate:S.src==="file"?fileFs:FS;
 async function startMic(){
 const warn=$("#mic-warn"); warn.classList.add("hidden");
 if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){showMicWarn();return;}
@@ -264,12 +272,27 @@ w.textContent=(e&&e.name==="NotAllowedError")
 function stopMic(){ if(recOn) stopRec(); setSession("playback"); if(micStream){micStream.getTracks().forEach(t=>t.stop());micStream=null;} try{micSrc&&micSrc.disconnect(); proc&&proc.disconnect();}catch(e){} if(proc) proc.onaudioprocess=null; proc=null; $("#mic-start").textContent="マイクを開始"; $("#mic-status").textContent="声や楽器の音をマイクに向けて出してみよう。"; updRecUI(); }
 function micSamples(){ if(!proc) return null; if(!micBuf||micBuf.length!==S.N) micBuf=new Float32Array(S.N);
 let st=(ringPos-S.N+RING)%RING; for(let n=0;n<S.N;n++){micBuf[n]=ring[st]; st=(st+1)%RING;} return micBuf; }
+/* file */
+const pad2=n=>String(n).padStart(2,"0");
+let fileAudio=null,fileMono=null,fileFs=48000,fileDur=0,fileNode=null,filePlaying=false,filePos=0,fileT0=0,fileBuf=null;
+const fmtT=t=>`${Math.floor(t/60)}:${pad2(Math.floor(t%60))}.${Math.floor(t*10%10)}`;
+function filePosNow(){ return filePlaying&&actx? Math.min(fileDur, filePos+(actx.currentTime-fileT0)) : filePos; }
+function fileStop(keep){ if(fileNode){ fileNode.onended=null; try{fileNode.stop()}catch(e){} fileNode=null; } if(filePlaying&&keep) filePos=filePosNow(); filePlaying=false; $("#file-play").textContent="再生"; }
+function filePlay(){ const c=getCtx(); if(!fileAudio) return; if(filePos>=fileDur-0.01) filePos=0;
+fileNode=c.createBufferSource(); fileNode.buffer=fileAudio; fileNode.connect(c.destination);
+fileNode.onended=()=>{ if(filePlaying){ filePlaying=false; filePos=fileDur; $("#file-play").textContent="再生"; dirty=true; } };
+fileNode.start(0,filePos); fileT0=c.currentTime; filePlaying=true; $("#file-play").textContent="一時停止"; }
+function useAudioBuffer(b,name){ fileStop(false); fileAudio=b; fileFs=b.sampleRate; fileDur=b.duration; filePos=0;
+const L=b.length,ch=b.numberOfChannels; fileMono=new Float32Array(L); for(let i=0;i<ch;i++){ const d=b.getChannelData(i); for(let n=0;n<L;n++) fileMono[n]+=d[n]/ch; }
+$("#file-play").disabled=false; $("#file-seek").disabled=false; $("#file-seek").value=0; $("#file-status").textContent=name; updateFacts(); dirty=true; }
+function fileSamples(){ if(!fileMono) return null; if(!fileBuf||fileBuf.length!==S.N) fileBuf=new Float32Array(S.N);
+const st=Math.floor(filePosNow()*fileFs); for(let n=0;n<S.N;n++){ const i=st+n; fileBuf[n]=i<fileMono.length?fileMono[i]:0; }
+if(filePlaying) $("#file-seek").value=Math.round(filePosNow()/fileDur*1000); $("#file-time").textContent=`${fmtT(filePosNow())} / ${fmtT(fileDur)}`; return fileBuf; }
 /* recording */
 const REC_MAX=60; let recOn=false, recChunks=[], recLen=0, recs=[], recDB=null, recTimer=null, playNode=null, playId=null;
 function idbOpen(){ return new Promise(res=>{ try{ const rq=indexedDB.open("spectrum-rec",1); rq.onupgradeneeded=()=>rq.result.createObjectStore("recs",{keyPath:"id",autoIncrement:true}); rq.onsuccess=()=>res(rq.result); rq.onerror=()=>res(null); rq.onblocked=()=>res(null); }catch(e){ res(null); } }); }
 function idbReq(mode,fn){ return new Promise(res=>{ if(!recDB){ res(null); return; } try{ const t=recDB.transaction("recs",mode), rq=fn(t.objectStore("recs")); rq.onsuccess=()=>res(rq.result); rq.onerror=()=>res(null); }catch(e){ res(null); } }); }
 async function initRecs(){ recDB=await idbOpen(); const all=await idbReq("readonly",st=>st.getAll()); if(all) recs=all.sort((a,b)=>b.date-a.date); renderRecs(); }
-const pad2=n=>String(n).padStart(2,"0");
 const fmtDate=t=>{ const d=new Date(t); return `${d.getMonth()+1}/${d.getDate()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
 const stamp=t=>{ const d=new Date(t); return `${d.getFullYear()}${pad2(d.getMonth()+1)}${pad2(d.getDate())}-${pad2(d.getHours())}${pad2(d.getMinutes())}${pad2(d.getSeconds())}`; };
 function nextNo(){ let m=0; for(const r of recs){ const x=parseInt(String(r.name).replace(/\D/g,""),10); if(x>m) m=x; } return m+1; }
@@ -293,10 +316,11 @@ for(const r of recs){ const row=document.createElement("div"); row.className="re
 const nm=document.createElement("span"); nm.className="nm"; nm.textContent=r.name;
 const mt=document.createElement("span"); mt.className="meta"; mt.textContent=`${(r.pcm.length/r.sr).toFixed(1)} 秒 · ${fmtDate(r.date)}`;
 const sp=document.createElement("span"); sp.className="sp";
-const bp=mkBtn(playId===r.id?"■ 停止":"▶ 再生",()=>playRec(r)); const be=mkBtn("保存",()=>exportPCM(r.pcm,r.sr,`${recBase(r)}.wav`)); const bd=mkBtn("削除",null,"danger");
+const bp=mkBtn(playId===r.id?"■ 停止":"▶ 再生",()=>playRec(r)); const bo=mkBtn("開いて分析",()=>openRec(r)); const be=mkBtn("保存",()=>exportPCM(r.pcm,r.sr,`${recBase(r)}.wav`)); const bd=mkBtn("削除",null,"danger");
 bd.addEventListener("click",async()=>{ if(bd.dataset.armed!=="1"){ bd.dataset.armed="1"; bd.textContent="もう一度押すと削除"; setTimeout(()=>{ bd.dataset.armed=""; bd.textContent="削除"; },3000); return; }
 if(playId===r.id) stopPlay(); if(typeof r.id==="number") await idbReq("readwrite",st=>st.delete(r.id)); recs=recs.filter(x=>x!==r); renderRecs(); });
-row.append(nm,mt,sp,bp,be,bd); el.appendChild(row); } }
+row.append(nm,mt,sp,bp,bo,be,bd); el.appendChild(row); } }
+function openRec(r){ const c=getCtx(); const b=c.createBuffer(1,r.pcm.length,r.sr); b.getChannelData(0).set(r.pcm); setSrc("file"); useAudioBuffer(b,`${r.name}（${(r.pcm.length/r.sr).toFixed(1)} 秒）`); }
 function recBase(r){ return `rec${String(r.name).replace(/\D/g,"")||1}_${stamp(r.date)}`; }
 function wavBlob(pcm,sr){ const n=pcm.length, ab=new ArrayBuffer(44+n*2), v=new DataView(ab); const ws=(o,t)=>{ for(let i=0;i<t.length;i++) v.setUint8(o+i,t.charCodeAt(i)); };
 ws(0,"RIFF"); v.setUint32(4,36+n*2,true); ws(8,"WAVE"); ws(12,"fmt "); v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true); v.setUint32(24,sr,true); v.setUint32(28,sr*2,true); v.setUint16(32,2,true); v.setUint16(34,16,true); ws(36,"data"); v.setUint32(40,n*2,true);
@@ -305,6 +329,7 @@ return new Blob([ab],{type:"audio/wav"}); }
 async function exportPCM(pcm,sr,name){ const blob=wavBlob(pcm,sr); const file=new File([blob],name,{type:"audio/wav"});
 try{ if(navigator.canShare&&navigator.canShare({files:[file]})){ await navigator.share({files:[file],title:name}); return; } }catch(e){ if(e&&e.name==="AbortError") return; }
 const url=URL.createObjectURL(blob), a=document.createElement("a"); a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),20000); }
+const noDataMsg=()=>S.src==="file"?"「ファイルを選ぶ」で音声ファイルを読み込んでください":"「マイクを開始」を押してください";
 /* oscilloscope */
 const TMS=[1,2,5,10,20,50,100];
 const scope=$("#scope"), gs=scope.getContext("2d"); let scBuf=null, scN=0, scFs=FS, scHas=false, scY=1;
@@ -312,6 +337,10 @@ function scopeData(){
 const fs=curFs(), L=Math.max(16,Math.round(S.tms/1000*fs)); scFs=fs; scN=L;
 if(!scBuf||scBuf.length!==L) scBuf=new Float32Array(L);
 if(S.src==="sine"){ const w=2*Math.PI*S.f/fs; for(let n=0;n<L;n++) scBuf[n]=0.5*Math.sin(w*n); scHas=true; return; }
+if(S.src==="file"){ if(!fileMono){ scHas=false; return; } let p=Math.floor(filePosNow()*fs), st=p;
+if(S.trig){ const M2=Math.max(L,Math.round(fs*0.05)), e=Math.min(fileMono.length-1,p+M2); let pk=0; for(let i=p;i<Math.min(fileMono.length,p+M2+L);i++){ const v=Math.abs(fileMono[i]); if(v>pk) pk=v; } const th=pk*0.05;
+for(let i=p+1;i<e;i++){ if(fileMono[i-1]<0&&fileMono[i]>=0){ let lo=1e9; for(let j=Math.max(0,i-200);j<i;j++) if(fileMono[j]<lo) lo=fileMono[j]; if(lo<-th){ st=i; break; } } } }
+for(let n=0;n<L;n++){ const i=st+n; scBuf[n]=i<fileMono.length?fileMono[i]:0; } scHas=true; return; }
 if(!proc){ scHas=false; return; }
 const M2=Math.min(RING-L-1, Math.max(L, Math.round(fs*0.05)));
 let start=(ringPos-L+RING)%RING;
@@ -331,7 +360,7 @@ for(let i=-4;i<=4;i++){ const y=mid-(pb-pt)/2*i/4; gs.strokeStyle=i===0?css.line
 gs.strokeStyle=css.line; gs.strokeRect(pl+.5,pt+.5,pr-pl-1,pb-pt-1);
 gs.fillStyle=css.muted; gs.textAlign="center"; gs.textBaseline="bottom"; gs.fillText("時間 [ms]",(pl+pr)/2,H-2);
 gs.save(); gs.translate(14,(pt+pb)/2); gs.rotate(-Math.PI/2); gs.textBaseline="middle"; gs.fillText("振幅",0,0); gs.restore();
-if(!scHas){ gs.fillStyle=css.muted; gs.textAlign="center"; gs.textBaseline="middle"; gs.font="15px "+getComputedStyle(document.documentElement).getPropertyValue("--ui"); gs.fillText("「マイクを開始」を押してください",(pl+pr)/2,mid); return; }
+if(!scHas){ gs.fillStyle=css.muted; gs.textAlign="center"; gs.textBaseline="middle"; gs.font="15px "+getComputedStyle(document.documentElement).getPropertyValue("--ui"); gs.fillText(noDataMsg(),(pl+pr)/2,mid); return; }
 gs.save(); gs.beginPath(); gs.rect(pl,pt,pr-pl,pb-pt); gs.clip(); gs.strokeStyle=css.trace; gs.lineWidth=1.8; gs.lineJoin="round"; gs.beginPath();
 const amp=(pb-pt)/2/ym, cols=Math.max(1,Math.floor(pr-pl));
 if(scN<=cols*2){ for(let i=0;i<scN;i++){ const x=pl+i/(scN-1)*(pr-pl), y=mid-scBuf[i]*amp; i?gs.lineTo(x,y):gs.moveTo(x,y);} }
@@ -339,7 +368,7 @@ else { for(let c=0;c<cols;c++){ const a=Math.floor(c*scN/cols), b=Math.floor((c+
 gs.stroke(); gs.restore(); }
 /* drawing */
 let amps=new Float32Array(S.N/2+1),wav=new Float32Array(S.N),ymax=0.6,lastPxPerBin=0,hasData=false,dataFs=FS,dataN=S.N;
-function compute(){ scopeData(); const x=S.src==="mic"?micSamples():genSine(); if(!x){hasData=false;return;} if(amps.length!==S.N/2+1) amps=new Float32Array(S.N/2+1); if(wav.length!==S.N) wav=new Float32Array(S.N); wav.set(x); fft(x,S.N,amps); dataFs=curFs(); dataN=S.N; hasData=true; }
+function compute(){ scopeData(); const x=S.src==="mic"?micSamples():S.src==="file"?fileSamples():genSine(); if(!x){hasData=false;return;} if(amps.length!==S.N/2+1) amps=new Float32Array(S.N/2+1); if(wav.length!==S.N) wav=new Float32Array(S.N); wav.set(x); fft(x,S.N,amps); dataFs=curFs(); dataN=S.N; hasData=true; }
 const spec=$("#spec"),wave=$("#wave"),g=spec.getContext("2d"),gw=wave.getContext("2d");
 let css={};
 function readCss(){const cs=getComputedStyle(document.documentElement);["ink","muted","line","grid","grid2","trace","cursor"].forEach(k=>css[k]=cs.getPropertyValue("--"+k).trim());}
@@ -392,7 +421,7 @@ g.strokeStyle=css.line; g.strokeRect(pl+.5,pt+.5,pr-pl-1,pb-pt-1);
 g.fillStyle=css.muted; g.textAlign="center"; g.textBaseline="bottom"; g.fillText("周波数 [Hz]",(pl+pr)/2,H-2);
 g.save(); g.translate(14,(pt+pb)/2); g.rotate(-Math.PI/2); g.textBaseline="middle"; g.fillText(S.y==="db"?"レベル [dB]":"振幅（相対値）",0,0); g.restore();
 if(hasData) drawSeries(W,H);
-else { g.fillStyle=css.muted; g.textAlign="center"; g.textBaseline="middle"; g.font="15px "+getComputedStyle(document.documentElement).getPropertyValue("--ui"); g.fillText("「マイクを開始」を押してください",(pl+pr)/2,(pt+pb)/2); }
+else { g.fillStyle=css.muted; g.textAlign="center"; g.textBaseline="middle"; g.font="15px "+getComputedStyle(document.documentElement).getPropertyValue("--ui"); g.fillText(noDataMsg(),(pl+pr)/2,(pt+pb)/2); }
 const pe=$("#peak");
 if(pk&&pk.a>1e-5){ const x=fx(pk.f,W),y=fy(val(pk.a),H); g.fillStyle=css.trace; g.beginPath(); g.moveTo(x,y-6); g.lineTo(x-5,y-14); g.lineTo(x+5,y-14); g.closePath(); g.fill();
 pe.textContent=`ピーク ${pk.f.toFixed(pk.df<1?2:1)} Hz（±${(pk.df/2).toFixed(1)}）`; } else pe.textContent="ピーク —";
@@ -415,22 +444,27 @@ gw.textBaseline="bottom"; gw.textAlign="left"; gw.fillText("0",pl,H-1);
 gw.textAlign="right"; gw.fillText((N/dataFs*1000).toFixed(1)+" ms",pr,H-1);
 gw.textAlign="center"; gw.fillText("分析している区間の波形",(pl+pr)/2,H-1);
 if(!hasData) return;
-let mx=0.5; if(S.src==="mic"){ mx=1e-6; for(let i=0;i<N;i++){const a=Math.abs(wav[i]); if(a>mx) mx=a;} }
+let mx=0.5; if(S.src!=="sine"){ mx=1e-6; for(let i=0;i<N;i++){const a=Math.abs(wav[i]); if(a>mx) mx=a;} }
 const cols=Math.max(1,Math.floor(pr-pl)); gw.strokeStyle=css.trace; gw.lineWidth=1; gw.beginPath();
 if(N<=cols*2){ for(let i=0;i<N;i++){const x=pl+i/(N-1)*(pr-pl),y=mid-wav[i]/mx*amp; i?gw.lineTo(x,y):gw.moveTo(x,y);} }
 else { for(let c=0;c<cols;c++){const a=Math.floor(c*N/cols),b=Math.floor((c+1)*N/cols); let lo=1e9,hi=-1e9; for(let i=a;i<b;i++){const v=wav[i]; if(v<lo)lo=v; if(v>hi)hi=v;} const x=pl+c+.5; gw.moveTo(x,mid-hi/mx*amp); gw.lineTo(x,mid-lo/mx*amp+.5);} }
 gw.stroke(); }
 let lastComp=0;
-function loop(t){ requestAnimationFrame(loop); const live=S.src==="mic"&&!!proc&&!S.frozen&&(S.N<65536||t-lastComp>150);
+function loop(t){ requestAnimationFrame(loop); const live=((S.src==="mic"&&!!proc)||(S.src==="file"&&filePlaying))&&!S.frozen&&(S.N<65536||t-lastComp>150);
 if(dirty||live){ if(!S.frozen){ compute(); lastComp=t; } draw(); dirty=false; } }
 /* UI */
 function press(sel,attr,v){document.querySelectorAll(sel).forEach(b=>b.setAttribute("aria-pressed",String(b.dataset[attr]===String(v))));}
 function updateFacts(){ const fs=curFs(); $("#fx-fs").textContent=fs+" Hz"; $("#fx-n").textContent=S.N; const df=fs/S.N; $("#fx-df").textContent=(df<1?df.toFixed(2):df.toFixed(1))+" Hz"; $("#fx-t").textContent=(S.N/fs*1000).toFixed(1)+" ms"; }
-function setSrc(v){ S.src=v; press("[data-src]","src",v); $("#panel-sine").hidden=v!=="sine"; $("#panel-mic").hidden=v!=="mic";
-if(v!=="sine"&&S.toneOn){ S.toneOn=false; syncTone(); } if(v!=="mic") stopMic(); hasData=false; S.cursorF=null; updateFacts(); dirty=true; }
+function setSrc(v){ S.src=v; press("[data-src]","src",v); $("#panel-sine").hidden=v!=="sine"; $("#panel-mic").hidden=v!=="mic"; $("#panel-file").hidden=v!=="file";
+if(v!=="sine"&&S.toneOn){ S.toneOn=false; syncTone(); } if(v!=="mic") stopMic(); if(v!=="file") fileStop(true); stopPlay(); hasData=false; S.cursorF=null; updateFacts(); dirty=true; }
 document.querySelectorAll("[data-src]").forEach(b=>b.addEventListener("click",()=>setSrc(b.dataset.src)));
 $("#mic-start").addEventListener("click",()=>{ if(micStream){ stopMic(); hasData=false; dirty=true; } else startMic(); });
 $("#rec").addEventListener("click",()=>{ if(recOn) stopRec(); else startRec(); });
+$("#file-in").addEventListener("change",async ev=>{ const f=ev.target.files[0]; if(!f) return; $("#file-status").textContent="読み込み中…";
+try{ const c=getCtx(); const ab=await f.arrayBuffer(); const b=await new Promise((res,rej)=>{ const p=c.decodeAudioData(ab,res,rej); if(p&&p.catch) p.catch(rej); }); useAudioBuffer(b,f.name); }
+catch(e){ $("#file-status").textContent="このファイルは読み込めませんでした。m4a / mp3 / wav 形式を試してください。"; } ev.target.value=""; });
+$("#file-play").addEventListener("click",()=>{ if(filePlaying) fileStop(true); else filePlay(); dirty=true; });
+$("#file-seek").addEventListener("input",e=>{ const t=e.target.value/1000*fileDur; const was=filePlaying; fileStop(false); filePos=t; if(was) filePlay(); dirty=true; });
 const tseg=$("#tseg"); TMS.forEach(t=>{ const b=document.createElement("button"); b.dataset.t=t; b.textContent=t+" ms"; b.addEventListener("click",()=>{ S.tms=t; press("[data-t]","t",t); dirty=true; }); tseg.appendChild(b); }); press("[data-t]","t",S.tms);
 document.querySelectorAll("[data-trig]").forEach(b=>b.addEventListener("click",()=>{ S.trig=b.dataset.trig==="1"; press("[data-trig]","trig",b.dataset.trig); dirty=true; }));
 document.querySelectorAll("[data-sy]").forEach(b=>b.addEventListener("click",()=>{ S.sy=b.dataset.sy; press("[data-sy]","sy",S.sy); dirty=true; }));
@@ -477,7 +511,7 @@ const u0=toU(xLo()), u1=toU(S.xMax), uc=u0+(cx-M.l)/plotW()*(u1-u0); applySpan(u
 new ResizeObserver(()=>dirty=true).observe(spec);
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change",()=>dirty=true);
 document.fonts&&document.fonts.ready.then(()=>dirty=true);
-document.addEventListener("visibilitychange",()=>{ if(document.hidden){ S.toneOn=false; syncTone(); if(recOn) stopRec(); } else if(actx&&actx.state!=="running"){ try{ actx.resume(); }catch(e){} } });
+document.addEventListener("visibilitychange",()=>{ if(document.hidden){ S.toneOn=false; syncTone(); if(recOn) stopRec(); if(filePlaying){ fileStop(true); dirty=true; } } else if(actx&&actx.state!=="running"){ try{ actx.resume(); }catch(e){} } });
 setF(440); updateFacts(); requestAnimationFrame(loop); initRecs();
 })();
 </script>
