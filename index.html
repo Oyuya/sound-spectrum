@@ -75,8 +75,13 @@ details ul{padding-left:1.2em;margin:.4em 0}
 .makenote{flex-basis:100%;max-width:75ch}
 .beatbox{flex-basis:100%;display:flex;flex-direction:column;gap:8px}
 .beatbox p{margin:0}
-.reclist{flex-basis:100%;display:flex;flex-direction:column;gap:6px}
-.recitem{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
+.reclist{flex-basis:100%;display:flex;flex-direction:column;gap:12px}
+#mic-status{flex-basis:100%;min-height:3.2em;margin:0}
+.recitem .btn.sm{min-height:46px;min-width:5.5em;padding:0 14px;font-size:14px}
+.recitem .btn.play{min-width:7em;font-weight:700}
+.recitem .btn.play[aria-pressed="true"]{background:var(--on);border-color:var(--on);color:var(--on-ink)}
+.recitem .acts{display:flex;flex-wrap:wrap;gap:12px}
+.recitem{display:flex;flex-wrap:wrap;align-items:center;gap:10px 12px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
 .recitem .nm{font-weight:700}
 .recitem .meta{font:13px var(--mono);color:var(--muted)}
 .recitem .sp{flex:1}
@@ -104,6 +109,10 @@ details ul{padding-left:1.2em;margin:.4em 0}
 <section class="source" id="panel-mic" hidden>
 <button class="btn primary" id="mic-start">マイクを開始</button>
 <button class="btn" id="rec" aria-pressed="false" disabled>● 録音</button>
+<div class="seg" role="group" aria-label="録音した音の大きさ">
+<button data-boost="1" aria-pressed="true">録音を大きくする</button>
+<button data-boost="0" aria-pressed="false">録音そのまま</button>
+</div>
 <span class="status" id="mic-status">声や楽器の音をマイクに向けて出してみよう。</span>
 <div class="warn hidden" id="mic-warn"></div>
 <div class="reclist" id="reclist"></div>
@@ -286,6 +295,7 @@ details ul{padding-left:1.2em;margin:.4em 0}
 <li>「平均する」を押すと、その後に入ってきた音の周波数分布を平均して表示します（無音に近い部分は除きます）。声のように刻々と変わる音の全体的な特徴（歌手フォルマントなど）を見るのに使います。録音や音声ファイルは「ファイル全体を平均」で一度に計算できます。平均は各周波数の「強さ（振幅の2乗）」を平均してから振幅に戻しています。</li>
 <li>「比較用に残す」は3本まで重ねられます（4本目を残すといちばん古いものが消えます）。平均を表示しているときに押すと、平均の形が残ります。</li>
 <li>「最大のピークをそろえる」はノーマライズ（全体に同じ倍率をかける処理）です。コンプレッサーやリミッターは大きい所だけを縮めるため波形の形が変わり、もとの音にない倍音が現れるなど周波数分布そのものが変わってしまいます。分析の結果を正しく保つため、このアプリでは採用していません。マイクの場合、静かなときは雑音が最大 30 dB まで持ち上がって見えることがあります。</li>
+<li>マイクは分析を正確にするため、自動で音量を上げる機能（オートゲイン）を切っています。そのため録音の音が小さくなりがちです。「録音を大きくする」（初めからオン）は、録音のいちばん大きい所が 0.9 になるように全体に同じ倍率をかけます（最大 +30 dB）。周波数分布の形は変わりませんが、録音どうしで音の大きさは比べられなくなり、まわりの雑音も同じだけ大きくなります。大きさを比べたいときは「録音そのまま」にしてください。元の録音はそのまま保存されているので、いつでも切り替えられます。</li>
 <li>マイクモードの「録音」は最大60秒です。録音はそのiPadのSafariの中に保存されますが、Safariの履歴・Webサイトデータを消したり、長い間このページを開かなかったりすると消えることがあります。残したい録音は「書き出す」で「ファイル」アプリなどに保存してください。</li>
 </ul>
 </details>
@@ -297,7 +307,7 @@ const $=s=>document.querySelector(s);
 const NS=[256,512,1024,2048,4096,8192,16384,32768,65536,131072];
 const RANGES=[500,1000,2000,5000,10000,20000];
 const TEST_FS=48000;
-const S={src:"test",N:4096,mode:"line",y:"lin",win:"hann",xs:"lin",xMin:0,xMax:2000,frozen:false,
+const S={boost:true,src:"test",N:4096,mode:"line",y:"lin",win:"hann",xs:"lin",xMin:0,xMax:2000,frozen:false,
 wave:"sine",f:440,f2:450,bw:10,bal:1,toneOn:false,cursorF:null,mf:220,mtoneOn:false,ptoneOn:false,paintInfo:null};
 let actx=null, dirty=true;
 const setSession=t=>{ try{ if(navigator.audioSession) navigator.audioSession.type=t; }catch(e){} };
@@ -785,26 +795,34 @@ const id=await idbReq("readwrite",s=>s.add(rec)); rec.id=(id!=null)?id:("m"+Date
 $("#mic-status").textContent=`${rec.name}（${(pcm.length/rec.sr).toFixed(1)} 秒）を保存しました。「▶ 再生」で聞いたり、「開いて分析」で時間を動かして見たりできます。`; }
 function mkBtn(t,fn,cls){ const b=document.createElement("button"); b.className="btn sm"+(cls?" "+cls:""); b.textContent=t; if(fn) b.addEventListener("click",fn); return b; }
 let playAud=null, playUrl=null, playId=null;
-function stopPlay(){ if(playAud){ playAud.onended=null; try{playAud.pause()}catch(e){} } if(playUrl){ try{URL.revokeObjectURL(playUrl)}catch(e){} playUrl=null; } playAud=null; playId=null; renderRecs(); }
-function playRec(r){ if(playId===r.id){ stopPlay(); return; } stopPlay();
-let note=""; if(micStream){ stopMic(); dirty=true; note="マイクを止めて再生しています（iPadではマイクを使ったままだと、再生の音がとても小さくなるため）。もう一度録音するときは「マイクを開始」を押してください。"; }
+const BOOST_T=0.9, BOOST_MAX=31.6;
+function recPeak(r){ if(r._pk==null){ let p=0; const a=r.pcm; for(let i=0;i<a.length;i++){ const v=Math.abs(a[i]); if(v>p) p=v; } Object.defineProperty(r,"_pk",{value:p,writable:true,enumerable:false}); } return r._pk; }
+function recGain(r){ if(!S.boost) return 1; const p=recPeak(r); return p>0?Math.min(BOOST_MAX,BOOST_T/p):1; }
+function recPCM(r){ const g=recGain(r); if(g===1) return r.pcm; const q=new Float32Array(r.pcm.length); for(let i=0;i<q.length;i++) q[i]=r.pcm[i]*g; return q; }
+function gainTxt(r){ const g=recGain(r); if(g===1) return ""; const db=20*Math.log10(g); return `（大きく +${db.toFixed(0)} dB）`; }
+const playBtns=new Map(); let lastTap=0;
+function tapOK(){ const t=Date.now(); if(t-lastTap<450) return false; lastTap=t; return true; }
+function setPlayUI(){ playBtns.forEach((b,id)=>{ const on=id===playId; b.textContent=on?"■ 停止":"▶ 再生"; b.setAttribute("aria-pressed",String(on)); }); }
+function stopPlay(){ if(playAud){ playAud.onended=null; try{playAud.pause()}catch(e){} } if(playUrl){ try{URL.revokeObjectURL(playUrl)}catch(e){} playUrl=null; } playAud=null; playId=null; setPlayUI(); }
+function playRec(r){ if(!tapOK()) return; if(playId===r.id){ stopPlay(); return; } stopPlay();
+let note=""; if(micStream){ stopMic(); dirty=true; note="再生のためマイクを止めました（マイクを使ったままだと再生の音が小さくなるため）。また録音するときは「マイクを開始」。"; }
 if(typeof filePlaying!=="undefined"&&filePlaying) fileStop(true); setSession("playback");
-let pcm=r.pcm; if(S.pn){ const pk=peakOf(pcm); if(pk>0){ const g=PN_T/pk; const q=new Float32Array(pcm.length); for(let i=0;i<q.length;i++) q[i]=pcm[i]*g; pcm=q; } }
-playUrl=URL.createObjectURL(wavBlob(pcm,r.sr)); const a=new Audio(); a.setAttribute("playsinline",""); a.preload="auto"; a.src=playUrl; a.onended=()=>stopPlay(); playAud=a; playId=r.id; renderRecs();
+let pcm=recPCM(r); if(S.pn){ const pk=peakOf(pcm); if(pk>0){ const g=PN_T/pk; const q=new Float32Array(pcm.length); for(let i=0;i<q.length;i++) q[i]=pcm[i]*g; pcm=q; } }
+playUrl=URL.createObjectURL(wavBlob(pcm,r.sr)); const a=new Audio(); a.setAttribute("playsinline",""); a.preload="auto"; a.src=playUrl; a.onended=()=>{ if(playAud===a) stopPlay(); }; playAud=a; playId=r.id; setPlayUI();
 const p=a.play(); if(p&&p.catch) p.catch(e=>{ if(playAud!==a) return; stopPlay(); $("#mic-status").textContent=`再生できませんでした（${e&&e.name||"エラー"}）。もう一度「▶ 再生」を押してください。`; });
 if(note) $("#mic-status").textContent=note; }
-function renderRecs(){ const el=$("#reclist"); el.textContent=""; if(!recs.length) return;
+function renderRecs(){ const el=$("#reclist"); el.textContent=""; playBtns.clear(); if(!recs.length) return;
 const h=document.createElement("div"); h.className="status"; h.textContent=recDB?"録音した音（このiPadのSafariの中に保存されます。確実に残すには「書き出す」）":"録音した音（この開き方では保存できないため、ページを閉じると消えます）"; el.appendChild(h);
 for(const r of recs){ const row=document.createElement("div"); row.className="recitem";
 const nm=document.createElement("span"); nm.className="nm"; nm.textContent=r.name;
-const mt=document.createElement("span"); mt.className="meta"; mt.textContent=`${(r.pcm.length/r.sr).toFixed(1)} 秒 · ${fmtDate(r.date)}`;
+const mt=document.createElement("span"); mt.className="meta"; mt.textContent=`${(r.pcm.length/r.sr).toFixed(1)} 秒 · ${fmtDate(r.date)}${gainTxt(r)}`;
 const sp=document.createElement("span"); sp.className="sp";
-const bp=mkBtn(playId===r.id?"■ 停止":"▶ 再生",()=>playRec(r)); const bo=mkBtn("開いて分析",()=>openRec(r)); const be=mkBtn("書き出す",()=>exportPCM(r.pcm,r.sr,`${recBase(r)}.wav`)); const bd=mkBtn("削除",null,"danger");
-bd.addEventListener("click",async()=>{ if(bd.dataset.armed!=="1"){ bd.dataset.armed="1"; bd.textContent="もう一度押すと削除"; setTimeout(()=>{ bd.dataset.armed=""; bd.textContent="削除"; },3000); return; }
+const bp=mkBtn(playId===r.id?"■ 停止":"▶ 再生",()=>playRec(r),"play"); bp.setAttribute("aria-pressed",String(playId===r.id)); bp.setAttribute("aria-label",`${r.name}を再生`); playBtns.set(r.id,bp); const bo=mkBtn("開いて分析",()=>{ if(tapOK()) openRec(r); }); const be=mkBtn("書き出す",()=>exportPCM(recPCM(r),r.sr,`${recBase(r)}.wav`)); const bd=mkBtn("削除",null,"danger");
+bd.addEventListener("click",async()=>{ if(!tapOK()) return; if(bd.dataset.armed!=="1"){ bd.dataset.armed="1"; bd.textContent="もう一度押すと削除"; setTimeout(()=>{ bd.dataset.armed=""; bd.textContent="削除"; },3000); return; }
 if(playId===r.id) stopPlay(); if(typeof r.id==="number") await idbReq("readwrite",s=>s.delete(r.id)); recs=recs.filter(x=>x!==r); renderRecs(); });
-row.append(nm,mt,sp,bp,bo,be,bd); el.appendChild(row); } }
+const acts=document.createElement("div"); acts.className="acts"; acts.append(bp,bo,be,bd); row.append(nm,mt,sp,acts); el.appendChild(row); } }
 function recBase(r){ return `rec${String(r.name).replace(/\D/g,"")||1}_${stamp(r.date)}`; }
-function openRec(r){ if(playId!=null) stopPlay(); const c=getCtx(); const buf=c.createBuffer(1,r.pcm.length,r.sr); buf.getChannelData(0).set(r.pcm); setSrc("file"); useAudioBuffer(buf,`${r.name}（${(r.pcm.length/r.sr).toFixed(1)} 秒）`); fileLabel=recBase(r); }
+function openRec(r){ if(playId!=null) stopPlay(); const c=getCtx(); const buf=c.createBuffer(1,r.pcm.length,r.sr); buf.getChannelData(0).set(recPCM(r)); setSrc("file"); useAudioBuffer(buf,`${r.name}（${(r.pcm.length/r.sr).toFixed(1)} 秒）`); fileLabel=recBase(r); }
 function wavBlob(pcm,sr){ const n=pcm.length, ab=new ArrayBuffer(44+n*2), v=new DataView(ab); const ws=(o,s)=>{ for(let i=0;i<s.length;i++) v.setUint8(o+i,s.charCodeAt(i)); };
 ws(0,"RIFF"); v.setUint32(4,36+n*2,true); ws(8,"WAVE"); ws(12,"fmt "); v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true); v.setUint32(24,sr,true); v.setUint32(28,sr*2,true); v.setUint16(32,2,true); v.setUint16(34,16,true); ws(36,"data"); v.setUint32(40,n*2,true);
 for(let i=0;i<n;i++){ const s=Math.max(-1,Math.min(1,pcm[i])); v.setInt16(44+i*2,s<0?s*0x8000:s*0x7fff,true); }
@@ -813,6 +831,7 @@ async function exportPCM(pcm,sr,name){ if(S.pn){ const pk=peakOf(pcm); if(pk>0){
 try{ if(navigator.canShare&&navigator.canShare({files:[file]})){ await navigator.share({files:[file],title:name}); return; } }catch(e){ if(e&&e.name==="AbortError") return; }
 const url=URL.createObjectURL(blob), a=document.createElement("a"); a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),20000); }
 $("#rec").addEventListener("click",()=>{ if(recOn) stopRec(); else startRec(); });
+document.querySelectorAll("[data-boost]").forEach(b=>b.addEventListener("click",()=>{ S.boost=b.dataset.boost==="1"; press("[data-boost]","boost",b.dataset.boost); if(playId!=null) stopPlay(); renderRecs(); }));
 $("#file-export").addEventListener("click",()=>{ if(fileMono) exportPCM(fileMono,fileFs,`${/^[A-Za-z0-9._-]+$/.test(fileLabel)?fileLabel:"sound_"+stamp(Date.now())}.wav`); });
 /* ---------- UI wiring ---------- */
 function press(sel,attr,v){document.querySelectorAll(sel).forEach(b=>b.setAttribute("aria-pressed",String(b.dataset[attr]===String(v))));}
