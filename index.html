@@ -782,20 +782,29 @@ const pcm=new Float32Array(recLen); let o=0; for(const c of recChunks){ pcm.set(
 if(recLen<micFs*0.2){ $("#mic-status").textContent="録音が短すぎたため保存しませんでした。"; return; }
 const rec={name:`録音 ${nextNo()}`, date:Date.now(), sr:micFs, pcm};
 const id=await idbReq("readwrite",s=>s.add(rec)); rec.id=(id!=null)?id:("m"+Date.now()); recs.unshift(rec); renderRecs();
-$("#mic-status").textContent=`${rec.name}（${(pcm.length/rec.sr).toFixed(1)} 秒）を保存しました。「開いて分析」で時間を動かして見られます。`; }
+$("#mic-status").textContent=`${rec.name}（${(pcm.length/rec.sr).toFixed(1)} 秒）を保存しました。「▶ 再生」で聞いたり、「開いて分析」で時間を動かして見たりできます。`; }
 function mkBtn(t,fn,cls){ const b=document.createElement("button"); b.className="btn sm"+(cls?" "+cls:""); b.textContent=t; if(fn) b.addEventListener("click",fn); return b; }
+let playAud=null, playUrl=null, playId=null;
+function stopPlay(){ if(playAud){ playAud.onended=null; try{playAud.pause()}catch(e){} } if(playUrl){ try{URL.revokeObjectURL(playUrl)}catch(e){} playUrl=null; } playAud=null; playId=null; renderRecs(); }
+function playRec(r){ if(playId===r.id){ stopPlay(); return; } stopPlay();
+let note=""; if(micStream){ stopMic(); dirty=true; note="マイクを止めて再生しています（iPadではマイクを使ったままだと、再生の音がとても小さくなるため）。もう一度録音するときは「マイクを開始」を押してください。"; }
+if(typeof filePlaying!=="undefined"&&filePlaying) fileStop(true); setSession("playback");
+let pcm=r.pcm; if(S.pn){ const pk=peakOf(pcm); if(pk>0){ const g=PN_T/pk; const q=new Float32Array(pcm.length); for(let i=0;i<q.length;i++) q[i]=pcm[i]*g; pcm=q; } }
+playUrl=URL.createObjectURL(wavBlob(pcm,r.sr)); const a=new Audio(); a.setAttribute("playsinline",""); a.preload="auto"; a.src=playUrl; a.onended=()=>stopPlay(); playAud=a; playId=r.id; renderRecs();
+const p=a.play(); if(p&&p.catch) p.catch(e=>{ if(playAud!==a) return; stopPlay(); $("#mic-status").textContent=`再生できませんでした（${e&&e.name||"エラー"}）。もう一度「▶ 再生」を押してください。`; });
+if(note) $("#mic-status").textContent=note; }
 function renderRecs(){ const el=$("#reclist"); el.textContent=""; if(!recs.length) return;
 const h=document.createElement("div"); h.className="status"; h.textContent=recDB?"録音した音（このiPadのSafariの中に保存されます。確実に残すには「書き出す」）":"録音した音（この開き方では保存できないため、ページを閉じると消えます）"; el.appendChild(h);
 for(const r of recs){ const row=document.createElement("div"); row.className="recitem";
 const nm=document.createElement("span"); nm.className="nm"; nm.textContent=r.name;
 const mt=document.createElement("span"); mt.className="meta"; mt.textContent=`${(r.pcm.length/r.sr).toFixed(1)} 秒 · ${fmtDate(r.date)}`;
 const sp=document.createElement("span"); sp.className="sp";
-const bo=mkBtn("開いて分析",()=>openRec(r)); const be=mkBtn("書き出す",()=>exportPCM(r.pcm,r.sr,`${recBase(r)}.wav`)); const bd=mkBtn("削除",null,"danger");
+const bp=mkBtn(playId===r.id?"■ 停止":"▶ 再生",()=>playRec(r)); const bo=mkBtn("開いて分析",()=>openRec(r)); const be=mkBtn("書き出す",()=>exportPCM(r.pcm,r.sr,`${recBase(r)}.wav`)); const bd=mkBtn("削除",null,"danger");
 bd.addEventListener("click",async()=>{ if(bd.dataset.armed!=="1"){ bd.dataset.armed="1"; bd.textContent="もう一度押すと削除"; setTimeout(()=>{ bd.dataset.armed=""; bd.textContent="削除"; },3000); return; }
-if(typeof r.id==="number") await idbReq("readwrite",s=>s.delete(r.id)); recs=recs.filter(x=>x!==r); renderRecs(); });
-row.append(nm,mt,sp,bo,be,bd); el.appendChild(row); } }
+if(playId===r.id) stopPlay(); if(typeof r.id==="number") await idbReq("readwrite",s=>s.delete(r.id)); recs=recs.filter(x=>x!==r); renderRecs(); });
+row.append(nm,mt,sp,bp,bo,be,bd); el.appendChild(row); } }
 function recBase(r){ return `rec${String(r.name).replace(/\D/g,"")||1}_${stamp(r.date)}`; }
-function openRec(r){ const c=getCtx(); const buf=c.createBuffer(1,r.pcm.length,r.sr); buf.getChannelData(0).set(r.pcm); setSrc("file"); useAudioBuffer(buf,`${r.name}（${(r.pcm.length/r.sr).toFixed(1)} 秒）`); fileLabel=recBase(r); }
+function openRec(r){ if(playId!=null) stopPlay(); const c=getCtx(); const buf=c.createBuffer(1,r.pcm.length,r.sr); buf.getChannelData(0).set(r.pcm); setSrc("file"); useAudioBuffer(buf,`${r.name}（${(r.pcm.length/r.sr).toFixed(1)} 秒）`); fileLabel=recBase(r); }
 function wavBlob(pcm,sr){ const n=pcm.length, ab=new ArrayBuffer(44+n*2), v=new DataView(ab); const ws=(o,s)=>{ for(let i=0;i<s.length;i++) v.setUint8(o+i,s.charCodeAt(i)); };
 ws(0,"RIFF"); v.setUint32(4,36+n*2,true); ws(8,"WAVE"); ws(12,"fmt "); v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true); v.setUint32(24,sr,true); v.setUint32(28,sr*2,true); v.setUint16(32,2,true); v.setUint16(34,16,true); ws(36,"data"); v.setUint32(40,n*2,true);
 for(let i=0;i<n;i++){ const s=Math.max(-1,Math.min(1,pcm[i])); v.setInt16(44+i*2,s<0?s*0x8000:s*0x7fff,true); }
