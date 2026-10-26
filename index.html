@@ -87,6 +87,10 @@ details ul{padding-left:1.2em;margin:.4em 0}
 .recitem .sp{flex:1}
 .btn.sm{min-height:36px;padding:0 10px;font-size:13px}
 .btn.danger{color:var(--cursor);border-color:var(--cursor)}
+select.sel{font:500 15px var(--ui);min-height:42px;min-width:220px;max-width:100%;padding:0 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)}
+#panel-voc .row{flex-basis:100%}
+.vocbox{flex-basis:100%;display:flex;flex-direction:column;gap:10px;border-top:1px solid var(--grid);padding-top:10px}
+.vocbox h3{font-size:13px;font-weight:700;margin:0;color:var(--muted);letter-spacing:.06em}
 @media (max-width:560px){ h1{font-size:18px} .seg button{padding:0 9px;font-size:13px} }
 </style>
 <div class="app">
@@ -98,6 +102,7 @@ details ul{padding-left:1.2em;margin:.4em 0}
 <button id="src-make" data-src="make" aria-pressed="false">つくる</button>
 <button id="src-paint" data-src="paint" aria-pressed="false">描く</button>
 <button id="src-file" data-src="file" aria-pressed="false">音声ファイル</button>
+<button id="src-voc" data-src="voc" aria-pressed="false">ボコーダー</button>
 </div>
 <div class="spacer"></div>
 <button class="btn" id="freeze" aria-pressed="false">グラフを止める</button>
@@ -201,6 +206,49 @@ details ul{padding-left:1.2em;margin:.4em 0}
 <button class="btn" id="ptone" aria-pressed="false">音を出す</button>
 <p class="status makenote">下のグラフに指で直接描きます。2本指でつまんで拡大してから描くと、細かい形を作れます。オレンジが描いた形、青がその音を分析した結果です。細い線ははっきりした高さの音に、幅の広い山は「ザー」という雑音に近い音になります。なお、幅の広い山は分析したときの高さが「分析に使う点の数」によって変わるので、線と山の高さはそのままでは比べられません。</p>
 </section>
+<section class="source" id="panel-voc" hidden>
+<p class="status makenote">ボコーダーは、声の「言葉の形」（周波数ごとの強さの変化）だけを取り出して、別の音にのせる仕組みです。ロボットの声や、和音でしゃべる声を作ってみよう。</p>
+<div class="row"><span class="lbl">のせる音</span>
+<div class="seg" role="group" aria-label="のせる音">
+<button data-car="saw" aria-pressed="true">ロボット</button>
+<button data-car="chord" aria-pressed="false">和音</button>
+<button data-car="square" aria-pressed="false">ピコピコ</button>
+<button data-car="noise" aria-pressed="false">ささやき</button>
+</div></div>
+<div class="row" id="vf-row"><span class="lbl">高さ</span>
+<button class="btn" id="vf-dn" aria-label="低くする">−</button>
+<input class="num" id="vf-num" type="number" inputmode="decimal" min="40" max="1000" step="1" value="110" aria-label="のせる音の高さ（Hz）">
+<button class="btn" id="vf-up" aria-label="高くする">＋</button>
+<span class="status">Hz</span>
+<div class="seg" role="group" aria-label="高さのひな形">
+<button data-vf="82" aria-pressed="false">低い</button>
+<button data-vf="110" aria-pressed="true">ふつう</button>
+<button data-vf="220" aria-pressed="false">高い</button>
+<button data-vf="440" aria-pressed="false">とても高い</button>
+</div></div>
+<div class="row"><span class="lbl">帯の数</span>
+<div class="seg" role="group" aria-label="帯の数">
+<button data-vb="8" aria-pressed="false">8</button>
+<button data-vb="16" aria-pressed="true">16</button>
+<button data-vb="32" aria-pressed="false">32</button>
+</div><span class="status">多いほど言葉がはっきり聞こえます</span></div>
+<div class="vocbox">
+<h3>録音した声を変える</h3>
+<div class="row"><select class="sel" id="voc-in" aria-label="変える声"></select>
+<button class="btn primary" id="voc-go">変換する</button></div>
+<div class="row"><button class="btn" id="voc-play" disabled>▶ 変換した音を再生</button>
+<button class="btn" id="voc-open" disabled>開いて分析</button>
+<button class="btn" id="voc-export" disabled>書き出す（WAV）</button></div>
+<span class="status" id="voc-status">マイクで録音するか、音声ファイルを読み込むと、ここで選べるようになります。</span>
+</div>
+<div class="vocbox">
+<h3>マイクでリアルタイム（イヤホン・ヘッドホンが必要）</h3>
+<div class="row"><button class="btn" id="voc-live" aria-pressed="false">リアルタイムを始める</button>
+<span class="lbl">マイクの感度</span><input type="range" id="voc-gain" min="1" max="40" step="1" value="10" aria-label="マイクの感度"><span class="status" id="voc-gain-txt">×10</span></div>
+<div class="warn">必ずイヤホンかヘッドホンをつけてから始めてください。スピーカーから音を出すと、マイクが拾って「キーン」とハウリングします。</div>
+<div class="warn hidden" id="voc-warn"></div>
+</div>
+</section>
 <section class="source" id="panel-file" hidden>
 <label class="btn primary" for="file-in">ファイルを選ぶ<input id="file-in" type="file" accept="audio/*,.m4a,.mp3,.wav,.aac" style="position:absolute;opacity:0;width:1px;height:1px"></label>
 <button class="btn" id="file-play" disabled>再生</button>
@@ -294,6 +342,7 @@ details ul{padding-left:1.2em;margin:.4em 0}
 <li>「音を出す」を使うと、スピーカーを鳴らす発振器として振動の観察実験にも使えます。音量に注意してください。</li>
 <li>「平均する」を押すと、その後に入ってきた音の周波数分布を平均して表示します（無音に近い部分は除きます）。声のように刻々と変わる音の全体的な特徴（歌手フォルマントなど）を見るのに使います。録音や音声ファイルは「ファイル全体を平均」で一度に計算できます。平均は各周波数の「強さ（振幅の2乗）」を平均してから振幅に戻しています。</li>
 <li>「比較用に残す」は3本まで重ねられます（4本目を残すといちばん古いものが消えます）。平均を表示しているときに押すと、平均の形が残ります。</li>
+<li>「ボコーダー」は、声を16本（8〜32本）の周波数の帯に分けて、それぞれの帯の強さの変化を取り出し、別の音（のこぎり波・和音・矩形波・雑音）の同じ帯にかけ合わせます。声の高さの情報は捨てて、周波数分布の形（フォルマント）だけを移すので、言葉は聞き取れるのに高さはのせた音の高さになります。4000 Hz より上の帯には「サ行」などの子音が聞こえるように雑音をのせています。録音の変換は端末の中で計算するので、ネットにはつながりません。リアルタイムはスピーカーだとハウリングするので、イヤホン・ヘッドホンを使ってください。</li>
 <li>「最大のピークをそろえる」はノーマライズ（全体に同じ倍率をかける処理）です。コンプレッサーやリミッターは大きい所だけを縮めるため波形の形が変わり、もとの音にない倍音が現れるなど周波数分布そのものが変わってしまいます。分析の結果を正しく保つため、このアプリでは採用していません。マイクの場合、静かなときは雑音が最大 30 dB まで持ち上がって見えることがあります。</li>
 <li>マイクは分析を正確にするため、自動で音量を上げる機能（オートゲイン）を切っています。そのため録音の音が小さくなりがちです。「録音を大きくする」（初めからオン）は、録音のいちばん大きい所が 0.9 になるように全体に同じ倍率をかけます（最大 +30 dB）。周波数分布の形は変わりませんが、録音どうしで音の大きさは比べられなくなり、まわりの雑音も同じだけ大きくなります。大きさを比べたいときは「録音そのまま」にしてください。元の録音はそのまま保存されているので、いつでも切り替えられます。</li>
 <li>マイクモードの「録音」は最大60秒です。録音はそのiPadのSafariの中に保存されますが、Safariの履歴・Webサイトデータを消したり、長い間このページを開かなかったりすると消えることがあります。残したい録音は「書き出す」で「ファイル」アプリなどに保存してください。</li>
@@ -434,6 +483,7 @@ rawPk=peakOf(micBuf);
 if(S.pn&&rawPk>0){ curG=Math.min(PN_MAXG,PN_T/rawPk); for(let n=0;n<S.N;n++) micBuf[n]*=curG; }
 return micBuf;
 }
+if(S.src==="voc") return vocSamples();
 if(!fileMono) return null;
 if(!tmpBuf||tmpBuf.length!==S.N) tmpBuf=new Float32Array(S.N);
 const start=Math.floor(filePosNow()*fileFs);
@@ -442,14 +492,14 @@ rawPk=peakOf(tmpBuf); if(S.pn&&fileGain!==1){ curG=fileGain; for(let n=0;n<S.N;n
 if(filePlaying){ $("#file-seek").value=Math.round(filePosNow()/fileDur*1000); }
 return tmpBuf;
 }
-const curFs=()=>(S.src==="test"||S.src==="make"||S.src==="paint")?TEST_FS:S.src==="mic"?(actx?actx.sampleRate:micFs):fileFs;
+const curFs=()=>(S.src==="test"||S.src==="make"||S.src==="paint")?TEST_FS:S.src==="mic"?(actx?actx.sampleRate:micFs):S.src==="voc"?vocFs():fileFs;
 /* ---------- state for drawing ---------- */
 let amps=new Float32Array(S.N/2+1),waveCopy=new Float32Array(S.N),hasData=false,dataFs=TEST_FS,dataN=S.N;
 let snaps=[], ymax=0.6, lastPxPerBin=0;
 const CMPC=["trace2","cmp2","cmp3"];
 S.avg=false; S.norm=false;
 let avgAcc=null,avgCnt=0,avgDur=0,avgLastT=0,avgKey="",avgWhole=null,avgMaxR=0,fileVer=0,fileShow="ファイル";
-const liveNow=()=>(S.src==="mic"&&!!analyser)||(S.src==="file"&&filePlaying);
+const liveNow=()=>(S.src==="mic"&&!!analyser)||(S.src==="file"&&filePlaying)||(S.src==="voc"&&vocActive());
 function avgKeyNow(){ return [S.src,S.N,S.win,curFs(),S.src==="file"?fileVer:0].join("|"); }
 let avgPk=0;
 function avgClear(){ avgAcc=null; avgCnt=0; avgDur=0; avgLastT=0; avgWhole=null; avgMaxR=0; avgPk=0; avgKey=avgKeyNow(); }
@@ -480,7 +530,7 @@ if(!S.avg){ S.avg=true; updAvgUI(); } dirty=true;
 }
 function updAvgUI(){ const b=$("#avg"); b.setAttribute("aria-pressed",S.avg); b.textContent=S.avg?"平均をやめる":"平均する"; $("#avgreset").classList.toggle("hidden",!S.avg); }
 function normF(A,fs,N){ if(!S.norm||S.src==="paint") return 1; const k0=Math.max(1,Math.ceil(50/(fs/N))); let m=0; for(let k=k0;k<=N/2;k++) if(A[k]>m) m=A[k]; return m>1e-9?1/m:1; }
-function srcName(){ return S.src==="mic"?"マイク":S.src==="test"?"テスト音":S.src==="make"?"つくった音":S.src==="paint"?"描いた音":fileShow; }
+function srcName(){ return S.src==="mic"?"マイク":S.src==="test"?"テスト音":S.src==="make"?"つくった音":S.src==="paint"?"描いた音":S.src==="voc"?"ボコーダー":fileShow; }
 function renderCmps(){ const el=$("#cmps"); el.textContent=""; snaps.forEach((s,i)=>{ const c=document.createElement("span"); c.className="chip"; c.style.color=`var(--${CMPC[s.ci]})`; c.style.borderColor=`var(--${CMPC[s.ci]})`; c.textContent=`― ${s.label}`; el.appendChild(c); }); $("#snapclear").classList.toggle("hidden",!snaps.length); }
 function compute(){
 const x=getSamples(); if(!x){hasData=false;return;}
@@ -563,7 +613,7 @@ if(S.src==="paint"){ drawPaintOverlay(W,H,pl,pr,pt,pb); if(dMax()<=0){ g.fillSty
 snaps.forEach(s=>drawSeries(s.a,s.fs,s.N,W,H,css[CMPC[s.ci]],S.mode==="bar"?"line":S.mode,0.85,normF(s.a,s.fs,s.N)));
 if(hasData){ drawSeries(amps,dataFs,dataN,W,H,css.trace,S.mode,1,sc); }
 else { g.fillStyle=css.muted; g.textAlign="center"; g.textBaseline="middle"; g.font="15px "+getComputedStyle(document.documentElement).getPropertyValue("--ui");
-g.fillText(S.src==="mic"?"「マイクを開始」を押してください":"音声ファイルを選んでください",(pl+pr)/2,(pt+pb)/2); }
+g.fillText(S.src==="mic"?"「マイクを開始」を押してください":S.src==="voc"?"「変換する」か「リアルタイムを始める」を押してください":"音声ファイルを選んでください",(pl+pr)/2,(pt+pb)/2); }
 // peak marker
 const pe=$("#peak");
 if(pk&&pk.a>1e-5){ const x=fx(pk.f,W),y=fy(val(pk.a*sc),H); g.fillStyle=css.trace; g.beginPath(); g.moveTo(x,y-6); g.lineTo(x-5,y-14); g.lineTo(x+5,y-14); g.closePath(); g.fill();
@@ -632,7 +682,7 @@ gw.stroke();
 let lastComp=0;
 function loop(t){
 requestAnimationFrame(loop);
-const live=(S.src==="mic"&&analyser)||(S.src==="file"&&filePlaying);
+const live=(S.src==="mic"&&analyser)||(S.src==="file"&&filePlaying)||(S.src==="voc"&&vocActive());
 const due=dirty||S.N<65536||(t-lastComp)>150;
 let did=false;
 const busy=S.src==="paint"&&strokeSave&&(t-lastComp)<120;
@@ -775,7 +825,7 @@ const L=buf.length,ch=buf.numberOfChannels; fileMono=new Float32Array(L);
 for(let i=0;i<ch;i++){const d=buf.getChannelData(i);for(let n=0;n<L;n++) fileMono[n]+=d[n]/ch;}
 { const pk=peakOf(fileMono); fileGain=pk>0?PN_T/pk:1; if(fileOut) fileOut.gain.value=S.pn?fileGain:1; }
 $("#file-play").disabled=false; $("#file-seek").disabled=false; $("#file-export").disabled=false; $("#file-avg").disabled=false; $("#file-seek").value=0;
-fileLabel=name.replace(/\.[^.]+$/,""); $("#file-status").textContent=name; updateFacts(); dirty=true; }
+fileLabel=name.replace(/\.[^.]+$/,""); $("#file-status").textContent=name; vocFillInputs(); updateFacts(); dirty=true; }
 function idbOpen(){ return new Promise(res=>{ try{ const rq=indexedDB.open("spectrum-rec",1); rq.onupgradeneeded=()=>rq.result.createObjectStore("recs",{keyPath:"id",autoIncrement:true}); rq.onsuccess=()=>res(rq.result); rq.onerror=()=>res(null); rq.onblocked=()=>res(null); }catch(e){ res(null); } }); }
 function idbReq(mode,fn){ return new Promise(res=>{ if(!recDB){ res(null); return; } try{ const t=recDB.transaction("recs",mode), rq=fn(t.objectStore("recs")); rq.onsuccess=()=>res(rq.result); rq.onerror=()=>res(null); }catch(e){ res(null); } }); }
 async function initRecs(){ recDB=await idbOpen(); const all=await idbReq("readonly",s=>s.getAll()); if(all) recs=all.sort((a,b)=>b.date-a.date); renderRecs(); }
@@ -811,7 +861,7 @@ let pcm=recPCM(r); if(S.pn){ const pk=peakOf(pcm); if(pk>0){ const g=PN_T/pk; co
 playUrl=URL.createObjectURL(wavBlob(pcm,r.sr)); const a=new Audio(); a.setAttribute("playsinline",""); a.preload="auto"; a.src=playUrl; a.onended=()=>{ if(playAud===a) stopPlay(); }; playAud=a; playId=r.id; setPlayUI();
 const p=a.play(); if(p&&p.catch) p.catch(e=>{ if(playAud!==a) return; stopPlay(); $("#mic-status").textContent=`再生できませんでした（${e&&e.name||"エラー"}）。もう一度「▶ 再生」を押してください。`; });
 if(note) $("#mic-status").textContent=note; }
-function renderRecs(){ const el=$("#reclist"); el.textContent=""; playBtns.clear(); if(!recs.length) return;
+function renderRecs(){ vocFillInputs(); const el=$("#reclist"); el.textContent=""; playBtns.clear(); if(!recs.length) return;
 const h=document.createElement("div"); h.className="status"; h.textContent=recDB?"録音した音（このiPadのSafariの中に保存されます。確実に残すには「書き出す」）":"録音した音（この開き方では保存できないため、ページを閉じると消えます）"; el.appendChild(h);
 for(const r of recs){ const row=document.createElement("div"); row.className="recitem";
 const nm=document.createElement("span"); nm.className="nm"; nm.textContent=r.name;
@@ -833,6 +883,96 @@ const url=URL.createObjectURL(blob), a=document.createElement("a"); a.href=url; 
 $("#rec").addEventListener("click",()=>{ if(recOn) stopRec(); else startRec(); });
 document.querySelectorAll("[data-boost]").forEach(b=>b.addEventListener("click",()=>{ S.boost=b.dataset.boost==="1"; press("[data-boost]","boost",b.dataset.boost); if(playId!=null) stopPlay(); renderRecs(); }));
 $("#file-export").addEventListener("click",()=>{ if(fileMono) exportPCM(fileMono,fileFs,`${/^[A-Za-z0-9._-]+$/.test(fileLabel)?fileLabel:"sound_"+stamp(Date.now())}.wav`); });
+/* ---------- vocoder ---------- */
+const VOC={car:"saw",f:110,bands:16,gain:10,out:null,outLabel:"",outSrc:"",aud:null,url:null,playing:false,live:null,busy:false,pos:0};
+const vocRing=new Float32Array(RING); let vocRingPos=0, vocBuf=null;
+function vocFs(){ return VOC.live&&actx?actx.sampleRate:VOC.out?VOC.out.sampleRate:48000; }
+function vocActive(){ return !!VOC.live||VOC.playing; }
+function vocBands(n){ const lo=110, hi=7600, b=[]; for(let i=0;i<n;i++){ const a=lo*Math.pow(hi/lo,i/n), c=lo*Math.pow(hi/lo,(i+1)/n), f=Math.sqrt(a*c); b.push({f, q:f/(c-a)}); } return b; }
+const gateCurves={};
+function gateCurve(d){ if(!gateCurves[d]){ const n=4096, c=new Float32Array(n); for(let i=0;i<n;i++){ const x=Math.abs(i/(n-1)*2-1); c[i]=Math.max(0,x-d)/(1-d); } gateCurves[d]=c; } return gateCurves[d]; }
+const noiseMap=new WeakMap();
+function noiseBuf(c){ let b=noiseMap.get(c); if(!b){ b=c.createBuffer(1,c.sampleRate*2,c.sampleRate); const d=b.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1; noiseMap.set(c,b); } return b; }
+function vocCarrier(c){ const mix=c.createGain(), srcs=[];
+const osc=(type,f,g)=>{ const o=c.createOscillator(); o.type=type; o.frequency.value=f; const gg=c.createGain(); gg.gain.value=g; o.connect(gg); gg.connect(mix); srcs.push(o); };
+const noise=()=>{ const n=c.createBufferSource(); n.buffer=noiseBuf(c); n.loop=true; srcs.push(n); return n; };
+if(VOC.car==="chord"){ osc("sawtooth",VOC.f,0.6); osc("sawtooth",VOC.f*5/4,0.6); osc("sawtooth",VOC.f*3/2,0.6); }
+else if(VOC.car==="square") osc("square",VOC.f,0.8);
+else if(VOC.car==="noise") noise().connect(mix);
+else osc("sawtooth",VOC.f,1);
+const hiss=noise(); return {mix,hiss,srcs}; }
+function vocGraph(c,input,output,gate){ const car=vocCarrier(c);
+for(const {f,q} of vocBands(VOC.bands)){
+const bp=()=>{ const b=c.createBiquadFilter(); b.type="bandpass"; b.frequency.value=f; b.Q.value=q; return b; };
+const m1=bp(), m2=bp(), rect=c.createWaveShaper(), lp=c.createBiquadFilter();
+rect.curve=gateCurve(gate); lp.type="lowpass"; lp.frequency.value=45; lp.Q.value=0.5;
+input.connect(m1); m1.connect(m2); m2.connect(rect); rect.connect(lp);
+const c1=bp(), c2=bp(), vca=c.createGain(); vca.gain.value=0; lp.connect(vca.gain);
+const tilt=c.createGain(); tilt.gain.value=Math.sqrt(f/200);
+((f>4000&&VOC.car!=="noise")?car.hiss:car.mix).connect(c1); c1.connect(c2); c2.connect(tilt); tilt.connect(vca); vca.connect(output); }
+return car; }
+function vocInputs(){ const list=[]; for(const r of recs) list.push({key:"r"+r.id, label:`${r.name}（${(r.pcm.length/r.sr).toFixed(1)} 秒・${fmtDate(r.date)}）`, get:()=>({pcm:recPCM(r), sr:r.sr}), name:r.name});
+if(fileMono&&!/^ボコーダー/.test(fileShow)) list.push({key:"f", label:`読み込んだ音声ファイル：${fileShow}`, get:()=>({pcm:fileMono, sr:fileFs}), name:fileShow}); return list; }
+function vocFillInputs(){ const sel=$("#voc-in"); if(!sel) return; const cur=sel.value, list=vocInputs(); sel.textContent="";
+if(!list.length){ const o=document.createElement("option"); o.value=""; o.textContent="（変える声がまだありません）"; sel.appendChild(o); sel.disabled=true; $("#voc-go").disabled=true;
+if(!VOC.out) $("#voc-status").textContent="マイクで録音するか、音声ファイルを読み込むと、ここで選べるようになります。"; return; }
+sel.disabled=false; $("#voc-go").disabled=VOC.busy; for(const it of list){ const o=document.createElement("option"); o.value=it.key; o.textContent=it.label; sel.appendChild(o); }
+if(list.some(it=>it.key===cur)) sel.value=cur; }
+function vocStopPlay(){ if(VOC.aud){ VOC.aud.onended=null; try{VOC.aud.pause()}catch(e){} VOC.aud=null; } if(VOC.url){ try{URL.revokeObjectURL(VOC.url)}catch(e){} VOC.url=null; } VOC.playing=false; $("#voc-play").textContent="▶ 変換した音を再生"; $("#voc-play").setAttribute("aria-pressed","false"); dirty=true; }
+async function vocRender(){ const it=vocInputs().find(x=>x.key===$("#voc-in").value); if(!it||VOC.busy) return;
+VOC.busy=true; $("#voc-go").disabled=true; vocStopPlay(); $("#voc-status").textContent="変換しています…";
+try{ const {pcm,sr}=it.get(); let pk=0; for(let i=0;i<pcm.length;i++){ const v=Math.abs(pcm[i]); if(v>pk) pk=v; }
+const OAC=window.OfflineAudioContext||window.webkitOfflineAudioContext; const tail=Math.round(sr*0.25), oc=new OAC(1,pcm.length+tail,sr);
+const b=oc.createBuffer(1,pcm.length,sr), d=b.getChannelData(0), g=pk>0?0.9/pk:1; for(let i=0;i<pcm.length;i++) d[i]=pcm[i]*g;
+const s=oc.createBufferSource(); s.buffer=b; const out=oc.createGain(); out.connect(oc.destination);
+const car=vocGraph(oc,s,out,0.004); car.srcs.forEach(x=>x.start(0)); s.start(0);
+const res=await new Promise((ok,ng)=>{ oc.oncomplete=e=>ok(e.renderedBuffer); const p=oc.startRendering(); if(p&&p.then) p.then(ok,ng); });
+const y=res.getChannelData(0); let op=0; for(let i=0;i<y.length;i++){ const v=Math.abs(y[i]); if(v>op) op=v; } if(op>0){ const k=0.9/op; for(let i=0;i<y.length;i++) y[i]*=k; }
+VOC.out=res; VOC.pos=0; VOC.outSrc=it.name; VOC.outLabel=`${it.name}を${{saw:"ロボット",chord:"和音",square:"ピコピコ",noise:"ささやき"}[VOC.car]}に`;
+["#voc-play","#voc-open","#voc-export"].forEach(id=>$(id).disabled=false);
+$("#voc-status").textContent=`できました：${VOC.outLabel}（${VOC.car==="noise"?"":VOC.f+" Hz・"}帯 ${VOC.bands} 本）。「▶ 変換した音を再生」で聞いてみよう。`; hasData=false; dirty=true; }
+catch(e){ $("#voc-status").textContent="変換できませんでした（"+(e&&e.name||"エラー")+"）。"; }
+VOC.busy=false; vocFillInputs(); }
+function vocPlay(){ if(!VOC.out) return; if(VOC.playing){ VOC.pos=VOC.aud?VOC.aud.currentTime:0; vocStopPlay(); return; }
+if(micStream) stopMic(); if(VOC.live) vocLiveStop(); if(playId!=null) stopPlay(); setSession("playback");
+VOC.url=URL.createObjectURL(wavBlob(VOC.out.getChannelData(0),VOC.out.sampleRate)); const a=new Audio(); a.setAttribute("playsinline",""); a.src=VOC.url;
+a.onended=()=>{ if(VOC.aud===a){ VOC.pos=0; vocStopPlay(); } }; VOC.aud=a; VOC.playing=true; $("#voc-play").textContent="■ 停止"; $("#voc-play").setAttribute("aria-pressed","true");
+const p=a.play(); if(p&&p.catch) p.catch(e=>{ if(VOC.aud!==a) return; vocStopPlay(); $("#voc-status").textContent="再生できませんでした。もう一度押してください。"; }); dirty=true; }
+async function vocLiveStart(){ const w=$("#voc-warn"); w.classList.add("hidden");
+if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){ w.textContent="この開き方ではマイクが使えません。https:// で始まるURLから開いてください。"; w.classList.remove("hidden"); return; }
+vocStopPlay(); if(micStream) stopMic(); if(playId!=null) stopPlay();
+try{ const c=getCtx(); setSession("play-and-record");
+const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+const src=c.createMediaStreamSource(stream), inG=c.createGain(); inG.gain.value=VOC.gain; src.connect(inG);
+const sum=c.createGain(); sum.gain.value=3; const comp=c.createDynamicsCompressor(); comp.threshold.value=-24; comp.knee.value=6; comp.ratio.value=12; comp.attack.value=0.003; comp.release.value=0.2;
+const vol=c.createGain(); vol.gain.value=0.9; sum.connect(comp); comp.connect(vol); vol.connect(c.destination);
+const tap=c.createScriptProcessor(4096,1,1), mute=c.createGain(); mute.gain.value=0; vol.connect(tap); tap.connect(mute); mute.connect(c.destination);
+vocRing.fill(0); vocRingPos=0; tap.onaudioprocess=ev=>{ const d=ev.inputBuffer.getChannelData(0); for(let i=0;i<d.length;i++){ vocRing[vocRingPos]=d[i]; vocRingPos=(vocRingPos+1)%RING; } };
+const car=vocGraph(c,inG,sum,0.01); car.srcs.forEach(x=>x.start());
+VOC.live={stream,src,inG,sum,vol,tap,mute,car}; const b=$("#voc-live"); b.textContent="リアルタイムを止める"; b.setAttribute("aria-pressed","true"); hasData=false; updateFacts(); dirty=true; }
+catch(e){ setSession("playback"); w.textContent=(e&&e.name==="NotAllowedError")?"マイクの使用が許可されませんでした。Safari のアドレスバー左の「ぁあ」→ Webサイトの設定 → マイク を「許可」にして、もう一度押してください。":"マイクを始められませんでした（"+(e&&e.name||"エラー")+"）。"; w.classList.remove("hidden"); } }
+function vocLiveStop(){ const L=VOC.live; if(!L) return; VOC.live=null;
+try{ L.car.srcs.forEach(x=>{ try{x.stop()}catch(e){} }); L.stream.getTracks().forEach(t=>t.stop()); L.src.disconnect(); L.vol.disconnect(); L.tap.disconnect(); L.tap.onaudioprocess=null; L.mute.disconnect(); }catch(e){}
+setSession("playback"); const b=$("#voc-live"); b.textContent="リアルタイムを始める"; b.setAttribute("aria-pressed","false"); dirty=true; }
+function vocRestartLive(){ if(VOC.live){ vocLiveStop(); vocLiveStart(); } }
+function vocStopAll(){ vocLiveStop(); if(VOC.playing){ VOC.pos=0; vocStopPlay(); } }
+function vocSamples(){ if(!vocBuf||vocBuf.length!==S.N) vocBuf=new Float32Array(S.N);
+if(VOC.live){ let st=(vocRingPos-S.N+RING)%RING; for(let n=0;n<S.N;n++){ vocBuf[n]=vocRing[st]; st=(st+1)%RING; } return vocBuf; }
+if(!VOC.out) return null; const d=VOC.out.getChannelData(0), t=VOC.playing&&VOC.aud?VOC.aud.currentTime:VOC.pos, st=Math.floor(t*VOC.out.sampleRate);
+for(let n=0;n<S.N;n++){ const i=st+n; vocBuf[n]=i<d.length?d[i]:0; } return vocBuf; }
+function vocChanged(){ if(VOC.live) vocRestartLive(); else if(VOC.out&&!VOC.busy&&vocInputs().some(x=>x.key===$("#voc-in").value)) vocRender(); }
+document.querySelectorAll("[data-car]").forEach(b=>b.addEventListener("click",()=>{ VOC.car=b.dataset.car; press("[data-car]","car",VOC.car); $("#vf-row").classList.toggle("hidden",VOC.car==="noise"); vocChanged(); }));
+function setVF(f){ f=Math.max(40,Math.min(1000,Math.round(f))); if(!isFinite(f)) return; VOC.f=f; $("#vf-num").value=f; press("[data-vf]","vf",f); vocChanged(); }
+document.querySelectorAll("[data-vf]").forEach(b=>b.addEventListener("click",()=>setVF(+b.dataset.vf)));
+$("#vf-num").addEventListener("change",e=>setVF(parseFloat(e.target.value)));
+$("#vf-dn").addEventListener("click",()=>setVF(VOC.f/Math.pow(2,1/12))); $("#vf-up").addEventListener("click",()=>setVF(VOC.f*Math.pow(2,1/12)));
+document.querySelectorAll("[data-vb]").forEach(b=>b.addEventListener("click",()=>{ VOC.bands=+b.dataset.vb; press("[data-vb]","vb",VOC.bands); vocChanged(); }));
+$("#voc-gain").addEventListener("input",e=>{ VOC.gain=+e.target.value; $("#voc-gain-txt").textContent="×"+VOC.gain; if(VOC.live) VOC.live.inG.gain.value=VOC.gain; });
+$("#voc-go").addEventListener("click",vocRender);
+$("#voc-play").addEventListener("click",vocPlay);
+$("#voc-live").addEventListener("click",()=>{ if(VOC.live) vocLiveStop(); else vocLiveStart(); });
+$("#voc-open").addEventListener("click",()=>{ if(!VOC.out) return; const out=VOC.out, lab=VOC.outLabel; setSrc("file"); useAudioBuffer(out,`ボコーダー：${lab}（${out.duration.toFixed(1)} 秒）`); fileLabel="vocoder_"+stamp(Date.now()); });
+$("#voc-export").addEventListener("click",()=>{ if(VOC.out) exportPCM(VOC.out.getChannelData(0),VOC.out.sampleRate,`vocoder_${stamp(Date.now())}.wav`); });
 /* ---------- UI wiring ---------- */
 function press(sel,attr,v){document.querySelectorAll(sel).forEach(b=>b.setAttribute("aria-pressed",String(b.dataset[attr]===String(v))));}
 function updateFacts(){
@@ -841,7 +981,8 @@ const df=fs/S.N; $("#fx-df").textContent=(df<1?df.toFixed(2):df.toFixed(1))+" Hz
 }
 function setSrc(s){
 S.src=s; press("[data-src]","src",s);
-$("#panel-mic").hidden=s!=="mic"; $("#panel-test").hidden=s!=="test"; $("#panel-file").hidden=s!=="file"; $("#panel-make").hidden=s!=="make"; $("#panel-paint").hidden=s!=="paint";
+$("#panel-mic").hidden=s!=="mic"; $("#panel-test").hidden=s!=="test"; $("#panel-file").hidden=s!=="file"; $("#panel-make").hidden=s!=="make"; $("#panel-paint").hidden=s!=="paint"; $("#panel-voc").hidden=s!=="voc";
+if(s!=="voc") vocStopAll(); else vocFillInputs();
 if(s!=="mic") stopMic(); if(s!=="file") fileStop(true); syncTone(); syncMakeTone();
 syncPaintTone(); S.paintInfo=null;
 document.querySelectorAll("[data-y]").forEach(b=>b.disabled=(s==="paint")); if(s==="paint"&&S.y!=="lin"){ S.y="lin"; press("[data-y]","y","lin"); }
@@ -944,7 +1085,7 @@ new ResizeObserver(()=>dirty=true).observe(spec);
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change",()=>dirty=true);
 new MutationObserver(()=>dirty=true).observe(document.documentElement,{attributes:true,attributeFilter:["data-theme"]});
 document.fonts&&document.fonts.ready.then(()=>dirty=true);
-document.addEventListener("visibilitychange",()=>{ if(document.hidden){ S.toneOn=false; syncTone(); S.mtoneOn=false; syncMakeTone(); S.ptoneOn=false; syncPaintTone(); if(recOn) stopRec(); } else if(actx&&actx.state!=="running"){ try{ actx.resume(); }catch(e){} } });
+document.addEventListener("visibilitychange",()=>{ if(document.hidden){ S.toneOn=false; syncTone(); S.mtoneOn=false; syncMakeTone(); S.ptoneOn=false; syncPaintTone(); if(recOn) stopRec(); vocStopAll(); } else if(actx&&actx.state!=="running"){ try{ actx.resume(); }catch(e){} } });
 updateFacts(); requestAnimationFrame(loop); initRecs();
 })();
 </script>
