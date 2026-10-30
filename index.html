@@ -227,6 +227,11 @@ select.sel{font:500 15px var(--ui);min-height:42px;min-width:220px;max-width:100
 <button data-vf="220" aria-pressed="false">高い</button>
 <button data-vf="440" aria-pressed="false">とても高い</button>
 </div></div>
+<div class="row"><span class="lbl">グラフ</span>
+<div class="seg" role="group" aria-label="変換前の声の周波数分布を重ねる">
+<button data-vov="1" aria-pressed="true">変換前も重ねる</button>
+<button data-vov="0" aria-pressed="false">変換後だけ</button>
+</div><span class="status">オレンジ＝変換前の声、青＝変換後の音</span></div>
 <div class="row"><span class="lbl">帯の数</span>
 <div class="seg" role="group" aria-label="帯の数">
 <button data-vb="8" aria-pressed="false">8</button>
@@ -267,6 +272,7 @@ select.sel{font:500 15px var(--ui);min-height:42px;min-width:220px;max-width:100
 <span class="chip avg hidden" id="avginfo"></span>
 <span class="chip hidden" id="pninfo"></span>
 <span id="cmps" style="display:contents"></span>
+<span class="chip hidden" id="vlegend"><span style="color:var(--trace2)">― 変換前の声（高さをそろえて表示）</span>　<span style="color:var(--trace)">― 変換後の音</span></span>
 <span class="chip hidden" id="plegend"><span style="color:var(--trace2)">■ 描いた形</span>　<span style="color:var(--trace)">― 分析結果</span></span>
 </div>
 <div class="wavebox" id="wavebox"><canvas id="wave" aria-label="分析している区間の波形"></canvas></div>
@@ -538,6 +544,7 @@ const x=getSamples(); if(!x){hasData=false;return;}
 if(amps.length!==S.N/2+1) amps=new Float32Array(S.N/2+1);
 if(waveCopy.length!==S.N) waveCopy=new Float32Array(S.N);
 waveCopy.set(x.subarray?x.subarray(0,S.N):x); fft(x,S.N,amps); dataFs=curFs(); dataN=S.N; hasData=true;
+vocInHas=false; if(S.src==="voc"&&VOC.ov&&vocInOK){ if(!vocInAmps||vocInAmps.length!==S.N/2+1) vocInAmps=new Float32Array(S.N/2+1); fft(vocInBuf,S.N,vocInAmps); vocInHas=true; }
 if(S.avg) applyAvg(x);
 }
 /* ---------- drawing ---------- */
@@ -612,6 +619,8 @@ g.fillStyle=css.muted; g.textAlign="center"; g.textBaseline="bottom"; g.fillText
 g.save(); g.translate(14,(pt+pb)/2); g.rotate(-Math.PI/2); g.textBaseline="middle"; g.fillText(S.y==="db"?(S.norm&&S.src!=="paint"?"レベル [dB]（最大＝0）":"レベル [dB]"):(S.norm&&S.src!=="paint"?"振幅（最大＝1）":"振幅（相対値）"),0,0); g.restore();
 if(S.src==="paint"){ drawPaintOverlay(W,H,pl,pr,pt,pb); if(dMax()<=0){ g.fillStyle=css.muted; g.textAlign="center"; g.textBaseline="middle"; g.font="15px "+getComputedStyle(document.documentElement).getPropertyValue("--ui"); g.fillText("グラフに指で描いてみよう",(pl+pr)/2,(pt+pb)/2); } }
 snaps.forEach(s=>drawSeries(s.a,s.fs,s.N,W,H,css[CMPC[s.ci]],S.mode==="bar"?"line":S.mode,0.85,normF(s.a,s.fs,s.N)));
+const vOv=S.src==="voc"&&VOC.ov&&vocInHas&&hasData&&!S.avg;
+if(vOv){ const po=findPeak(amps,dataFs,dataN), pi2=findPeak(vocInAmps,dataFs,dataN); if(po&&pi2&&pi2.a>1e-9) drawSeries(vocInAmps,dataFs,dataN,W,H,css.trace2,S.mode==="bar"?"line":S.mode,0.85,sc*po.a/pi2.a); }
 if(hasData){ drawSeries(amps,dataFs,dataN,W,H,css.trace,S.mode,1,sc); }
 else { g.fillStyle=css.muted; g.textAlign="center"; g.textBaseline="middle"; g.font="15px "+getComputedStyle(document.documentElement).getPropertyValue("--ui");
 g.fillText(S.src==="mic"?"「マイクを開始」を押してください":S.src==="voc"?"「変換する」か「リアルタイムを始める」を押してください":"音声ファイルを選んでください",(pl+pr)/2,(pt+pb)/2); }
@@ -642,7 +651,7 @@ if(pnOn&&hasData){ const gg=(S.avg&&avgCnt>0)?dispGain():curG, db=20*Math.log10(
 pi.textContent=`ピークをそろえる ×${gg<10?gg.toFixed(2):gg.toFixed(1)}（${db>=0?"+":""}${db.toFixed(1)} dB）${S.src==="mic"&&gg>=PN_MAXG*0.999?"・上限":""}`; pi.classList.remove("hidden"); }
 else pi.classList.add("hidden");
 if(S.src==="paint"&&S.paintInfo){ ce.textContent=S.paintInfo; ce.classList.remove("hidden"); }
-$("#plegend").classList.toggle("hidden",S.src!=="paint");
+$("#plegend").classList.toggle("hidden",S.src!=="paint"); $("#vlegend").classList.toggle("hidden",!vOv);
 const zh=$("#zoomhint"), showZ=hasData&&lastPxPerBin>18;
 zh.classList.toggle("hidden",!showZ);
 if(showZ) zh.textContent=`点の間隔（周波数の刻み）は ${(dataFs/dataN).toFixed(dataFs/dataN<1?2:1)} Hz。拡大しても細かくはなりません。下の「分析に使う点の数」を増やしてみよう`;
@@ -901,8 +910,8 @@ $("#rec").addEventListener("click",()=>{ if(recOn) stopRec(); else startRec(); }
 document.querySelectorAll("[data-boost]").forEach(b=>b.addEventListener("click",()=>{ S.boost=b.dataset.boost==="1"; press("[data-boost]","boost",b.dataset.boost); if(playId!=null) stopPlay(); renderRecs(); }));
 $("#file-export").addEventListener("click",()=>{ if(fileMono) exportPCM(fileMono,fileFs,`${/^[A-Za-z0-9._-]+$/.test(fileLabel)?fileLabel:"sound_"+stamp(Date.now())}.wav`); });
 /* ---------- vocoder ---------- */
-const VOC={car:"saw",f:110,bands:16,gain:10,out:null,outLabel:"",outSrc:"",aud:null,url:null,playing:false,live:null,busy:false,pos:0};
-const vocRing=new Float32Array(RING), vocInRing=new Float32Array(RING); let vocRingPos=0, vocBuf=null, vocInBuf=null, vocInOK=false;
+const VOC={ov:true,car:"saw",f:110,bands:16,gain:10,out:null,outLabel:"",outSrc:"",aud:null,url:null,playing:false,live:null,busy:false,pos:0};
+const vocRing=new Float32Array(RING), vocInRing=new Float32Array(RING); let vocRingPos=0, vocBuf=null, vocInBuf=null, vocInOK=false, vocInAmps=null, vocInHas=false;
 function vocFs(){ return VOC.live&&actx?actx.sampleRate:VOC.out?VOC.out.sampleRate:48000; }
 function vocActive(){ return !!VOC.live||VOC.playing; }
 function vocBands(n){ const lo=110, hi=7600, b=[]; for(let i=0;i<n;i++){ const a=lo*Math.pow(hi/lo,i/n), c=lo*Math.pow(hi/lo,(i+1)/n), f=Math.sqrt(a*c); b.push({f, q:f/(c-a)}); } return b; }
@@ -983,6 +992,7 @@ function setVF(f){ f=Math.max(40,Math.min(1000,Math.round(f))); if(!isFinite(f))
 document.querySelectorAll("[data-vf]").forEach(b=>b.addEventListener("click",()=>setVF(+b.dataset.vf)));
 $("#vf-num").addEventListener("change",e=>setVF(parseFloat(e.target.value)));
 $("#vf-dn").addEventListener("click",()=>setVF(VOC.f/Math.pow(2,1/12))); $("#vf-up").addEventListener("click",()=>setVF(VOC.f*Math.pow(2,1/12)));
+document.querySelectorAll("[data-vov]").forEach(b=>b.addEventListener("click",()=>{ VOC.ov=b.dataset.vov==="1"; press("[data-vov]","vov",b.dataset.vov); dirty=true; }));
 document.querySelectorAll("[data-vb]").forEach(b=>b.addEventListener("click",()=>{ VOC.bands=+b.dataset.vb; press("[data-vb]","vb",VOC.bands); vocChanged(); }));
 $("#voc-gain").addEventListener("input",e=>{ VOC.gain=+e.target.value; $("#voc-gain-txt").textContent="×"+VOC.gain; if(VOC.live) VOC.live.inG.gain.value=VOC.gain; });
 $("#voc-go").addEventListener("click",vocRender);
