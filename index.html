@@ -52,6 +52,7 @@ input[type=range]{accent-color:var(--trace);width:min(320px,100%);min-height:36p
 .chart{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:8px 8px 4px;position:relative}
 #spec{display:block;width:100%;height:clamp(260px,50vh,560px);touch-action:none;-webkit-user-select:none;user-select:none}
 #wave{display:block;width:100%;height:84px;touch-action:pan-y}
+.wavebox.two #wave{height:160px}
 .wavebox{border-top:1px solid var(--grid);margin-top:4px;padding-top:2px}
 .readout{position:absolute;top:12px;right:16px;display:flex;flex-direction:column;align-items:flex-end;gap:4px;pointer-events:none}
 .chip{font:500 13px var(--mono);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:2px 8px;font-variant-numeric:tabular-nums}
@@ -663,9 +664,25 @@ const x=pl+c+.5; gw.moveTo(x,mid-hi/mx*amp); gw.lineTo(x,mid-lo/mx*amp+.5); }
 gw.stroke();
 if(S.bw>0){ gw.strokeStyle=css.cursor; gw.setLineDash([3,3]); gw.beginPath(); for(let k=1;k/S.bw<T;k++){ const x=pl+(k/S.bw)/T*(pr-pl); gw.moveTo(Math.round(x)+.5,mid-amp); gw.lineTo(Math.round(x)+.5,mid+amp); } gw.stroke(); gw.setLineDash([]); }
 }
+function drawVocWave(W,H){
+const pl=M.l,pr=W-M.r,top=4,laneH=(H-20-top)/2, cols=Math.max(1,Math.floor(pr-pl)), N=dataN;
+gw.font="11px "+getComputedStyle(document.documentElement).getPropertyValue("--mono"); gw.fillStyle=css.muted;
+gw.textBaseline="bottom"; gw.textAlign="left"; gw.fillText("0",pl,H-1);
+gw.textAlign="right"; gw.fillText((N/dataFs*1000).toFixed(1)+" ms",pr,H-1);
+gw.textAlign="center"; gw.fillText("分析している区間の波形（上：変換前の声　下：変換後の音）",(pl+pr)/2,H-1);
+[[vocInOK?vocInBuf:null,"変換前",css.trace2],[hasData?waveCopy:null,"変換後",css.trace]].forEach(([buf,lab,col],k)=>{
+const mid=top+laneH*(k+0.5), amp=laneH/2-3;
+gw.strokeStyle=css.grid; gw.lineWidth=1; gw.beginPath(); gw.moveTo(pl,Math.round(mid)+.5); gw.lineTo(pr,Math.round(mid)+.5); gw.stroke();
+gw.fillStyle=col; gw.textAlign="right"; gw.textBaseline="middle"; gw.font="700 12px "+getComputedStyle(document.documentElement).getPropertyValue("--ui"); gw.fillText(lab,pl-6,mid);
+if(!buf||buf.length<N) return; let mx=1e-6; for(let i=0;i<N;i++){ const a=Math.abs(buf[i]); if(a>mx) mx=a; }
+gw.strokeStyle=col; gw.beginPath();
+if(N<=cols*2){ for(let i=0;i<N;i++){ const x=pl+i/(N-1)*(pr-pl), y=mid-buf[i]/mx*amp; i?gw.lineTo(x,y):gw.moveTo(x,y); } }
+else { for(let c=0;c<cols;c++){ const a=Math.floor(c*N/cols), b=Math.floor((c+1)*N/cols); let lo=1e9,hi=-1e9; for(let i=a;i<b;i++){ const v=buf[i]; if(v<lo)lo=v; if(v>hi)hi=v; } const x=pl+c+.5; gw.moveTo(x,mid-hi/mx*amp); gw.lineTo(x,mid-lo/mx*amp+.5); } }
+gw.stroke(); }); }
 function drawWave(){
 const [W,H]=fit(wave,gw); gw.clearRect(0,0,W,H);
 if(S.src==="test"&&S.wave==="two"){ drawBeat(W,H); return; }
+if(S.src==="voc"){ drawVocWave(W,H); return; }
 const pl=M.l,pr=W-M.r,mid=(H-16)/2+2,amp=(H-20)/2;
 gw.strokeStyle=css.grid; gw.beginPath(); gw.moveTo(pl,Math.round(mid)+.5); gw.lineTo(pr,Math.round(mid)+.5); gw.stroke();
 gw.font="11px "+getComputedStyle(document.documentElement).getPropertyValue("--mono"); gw.fillStyle=css.muted;
@@ -885,7 +902,7 @@ document.querySelectorAll("[data-boost]").forEach(b=>b.addEventListener("click",
 $("#file-export").addEventListener("click",()=>{ if(fileMono) exportPCM(fileMono,fileFs,`${/^[A-Za-z0-9._-]+$/.test(fileLabel)?fileLabel:"sound_"+stamp(Date.now())}.wav`); });
 /* ---------- vocoder ---------- */
 const VOC={car:"saw",f:110,bands:16,gain:10,out:null,outLabel:"",outSrc:"",aud:null,url:null,playing:false,live:null,busy:false,pos:0};
-const vocRing=new Float32Array(RING); let vocRingPos=0, vocBuf=null;
+const vocRing=new Float32Array(RING), vocInRing=new Float32Array(RING); let vocRingPos=0, vocBuf=null, vocInBuf=null, vocInOK=false;
 function vocFs(){ return VOC.live&&actx?actx.sampleRate:VOC.out?VOC.out.sampleRate:48000; }
 function vocActive(){ return !!VOC.live||VOC.playing; }
 function vocBands(n){ const lo=110, hi=7600, b=[]; for(let i=0;i<n;i++){ const a=lo*Math.pow(hi/lo,i/n), c=lo*Math.pow(hi/lo,(i+1)/n), f=Math.sqrt(a*c); b.push({f, q:f/(c-a)}); } return b; }
@@ -928,7 +945,7 @@ const s=oc.createBufferSource(); s.buffer=b; const out=oc.createGain(); out.conn
 const car=vocGraph(oc,s,out,0.004); car.srcs.forEach(x=>x.start(0)); s.start(0);
 const res=await new Promise((ok,ng)=>{ oc.oncomplete=e=>ok(e.renderedBuffer); const p=oc.startRendering(); if(p&&p.then) p.then(ok,ng); });
 const y=res.getChannelData(0); let op=0; for(let i=0;i<y.length;i++){ const v=Math.abs(y[i]); if(v>op) op=v; } if(op>0){ const k=0.9/op; for(let i=0;i<y.length;i++) y[i]*=k; }
-VOC.out=res; VOC.pos=0; VOC.outSrc=it.name; VOC.outLabel=`${it.name}を${{saw:"ロボット",chord:"和音",square:"ピコピコ",noise:"ささやき"}[VOC.car]}に`;
+VOC.out=res; VOC.inPcm=d; VOC.pos=0; VOC.outSrc=it.name; VOC.outLabel=`${it.name}を${{saw:"ロボット",chord:"和音",square:"ピコピコ",noise:"ささやき"}[VOC.car]}に`;
 ["#voc-play","#voc-open","#voc-export"].forEach(id=>$(id).disabled=false);
 $("#voc-status").textContent=`できました：${VOC.outLabel}（${VOC.car==="noise"?"":VOC.f+" Hz・"}帯 ${VOC.bands} 本）。「▶ 変換した音を再生」で聞いてみよう。`; hasData=false; dirty=true; }
 catch(e){ $("#voc-status").textContent="変換できませんでした（"+(e&&e.name||"エラー")+"）。"; }
@@ -946,20 +963,20 @@ const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:
 const src=c.createMediaStreamSource(stream), inG=c.createGain(); inG.gain.value=VOC.gain; src.connect(inG);
 const sum=c.createGain(); sum.gain.value=3; const comp=c.createDynamicsCompressor(); comp.threshold.value=-24; comp.knee.value=6; comp.ratio.value=12; comp.attack.value=0.003; comp.release.value=0.2;
 const vol=c.createGain(); vol.gain.value=0.9; sum.connect(comp); comp.connect(vol); vol.connect(c.destination);
-const tap=c.createScriptProcessor(4096,1,1), mute=c.createGain(); mute.gain.value=0; vol.connect(tap); tap.connect(mute); mute.connect(c.destination);
-vocRing.fill(0); vocRingPos=0; tap.onaudioprocess=ev=>{ const d=ev.inputBuffer.getChannelData(0); for(let i=0;i<d.length;i++){ vocRing[vocRingPos]=d[i]; vocRingPos=(vocRingPos+1)%RING; } };
+const tap=c.createScriptProcessor(4096,2,1), mute=c.createGain(), mg=c.createChannelMerger(2); mute.gain.value=0; inG.connect(mg,0,0); vol.connect(mg,0,1); mg.connect(tap); tap.connect(mute); mute.connect(c.destination);
+vocRing.fill(0); vocInRing.fill(0); vocRingPos=0; tap.onaudioprocess=ev=>{ const di=ev.inputBuffer.getChannelData(0), d=ev.inputBuffer.getChannelData(1); for(let i=0;i<d.length;i++){ vocInRing[vocRingPos]=di[i]; vocRing[vocRingPos]=d[i]; vocRingPos=(vocRingPos+1)%RING; } };
 const car=vocGraph(c,inG,sum,0.01); car.srcs.forEach(x=>x.start());
-VOC.live={stream,src,inG,sum,vol,tap,mute,car}; const b=$("#voc-live"); b.textContent="リアルタイムを止める"; b.setAttribute("aria-pressed","true"); hasData=false; updateFacts(); dirty=true; }
+VOC.live={stream,src,inG,sum,vol,tap,mute,mg,car}; const b=$("#voc-live"); b.textContent="リアルタイムを止める"; b.setAttribute("aria-pressed","true"); hasData=false; updateFacts(); dirty=true; }
 catch(e){ setSession("playback"); w.textContent=(e&&e.name==="NotAllowedError")?"マイクの使用が許可されませんでした。Safari のアドレスバー左の「ぁあ」→ Webサイトの設定 → マイク を「許可」にして、もう一度押してください。":"マイクを始められませんでした（"+(e&&e.name||"エラー")+"）。"; w.classList.remove("hidden"); } }
 function vocLiveStop(){ const L=VOC.live; if(!L) return; VOC.live=null;
-try{ L.car.srcs.forEach(x=>{ try{x.stop()}catch(e){} }); L.stream.getTracks().forEach(t=>t.stop()); L.src.disconnect(); L.vol.disconnect(); L.tap.disconnect(); L.tap.onaudioprocess=null; L.mute.disconnect(); }catch(e){}
+try{ L.car.srcs.forEach(x=>{ try{x.stop()}catch(e){} }); L.stream.getTracks().forEach(t=>t.stop()); L.src.disconnect(); L.vol.disconnect(); L.tap.disconnect(); L.tap.onaudioprocess=null; L.mute.disconnect(); L.mg.disconnect(); }catch(e){}
 setSession("playback"); const b=$("#voc-live"); b.textContent="リアルタイムを始める"; b.setAttribute("aria-pressed","false"); dirty=true; }
 function vocRestartLive(){ if(VOC.live){ vocLiveStop(); vocLiveStart(); } }
 function vocStopAll(){ vocLiveStop(); if(VOC.playing){ VOC.pos=0; vocStopPlay(); } }
-function vocSamples(){ if(!vocBuf||vocBuf.length!==S.N) vocBuf=new Float32Array(S.N);
-if(VOC.live){ let st=(vocRingPos-S.N+RING)%RING; for(let n=0;n<S.N;n++){ vocBuf[n]=vocRing[st]; st=(st+1)%RING; } return vocBuf; }
-if(!VOC.out) return null; const d=VOC.out.getChannelData(0), t=VOC.playing&&VOC.aud?VOC.aud.currentTime:VOC.pos, st=Math.floor(t*VOC.out.sampleRate);
-for(let n=0;n<S.N;n++){ const i=st+n; vocBuf[n]=i<d.length?d[i]:0; } return vocBuf; }
+function vocSamples(){ if(!vocBuf||vocBuf.length!==S.N) vocBuf=new Float32Array(S.N); if(!vocInBuf||vocInBuf.length!==S.N) vocInBuf=new Float32Array(S.N);
+if(VOC.live){ let st=(vocRingPos-S.N+RING)%RING; for(let n=0;n<S.N;n++){ vocBuf[n]=vocRing[st]; vocInBuf[n]=vocInRing[st]; st=(st+1)%RING; } vocInOK=true; return vocBuf; }
+vocInOK=false; if(!VOC.out) return null; const d=VOC.out.getChannelData(0), ip=VOC.inPcm, t=VOC.playing&&VOC.aud?VOC.aud.currentTime:VOC.pos, st=Math.floor(t*VOC.out.sampleRate);
+for(let n=0;n<S.N;n++){ const i=st+n; vocBuf[n]=i<d.length?d[i]:0; vocInBuf[n]=ip&&i<ip.length?ip[i]:0; } vocInOK=!!ip; return vocBuf; }
 function vocChanged(){ if(VOC.live) vocRestartLive(); else if(VOC.out&&!VOC.busy&&vocInputs().some(x=>x.key===$("#voc-in").value)) vocRender(); }
 document.querySelectorAll("[data-car]").forEach(b=>b.addEventListener("click",()=>{ VOC.car=b.dataset.car; press("[data-car]","car",VOC.car); $("#vf-row").classList.toggle("hidden",VOC.car==="noise"); vocChanged(); }));
 function setVF(f){ f=Math.max(40,Math.min(1000,Math.round(f))); if(!isFinite(f)) return; VOC.f=f; $("#vf-num").value=f; press("[data-vf]","vf",f); vocChanged(); }
@@ -981,7 +998,7 @@ const df=fs/S.N; $("#fx-df").textContent=(df<1?df.toFixed(2):df.toFixed(1))+" Hz
 }
 function setSrc(s){
 S.src=s; press("[data-src]","src",s);
-$("#panel-mic").hidden=s!=="mic"; $("#panel-test").hidden=s!=="test"; $("#panel-file").hidden=s!=="file"; $("#panel-make").hidden=s!=="make"; $("#panel-paint").hidden=s!=="paint"; $("#panel-voc").hidden=s!=="voc";
+$("#panel-mic").hidden=s!=="mic"; $("#panel-test").hidden=s!=="test"; $("#panel-file").hidden=s!=="file"; $("#panel-make").hidden=s!=="make"; $("#panel-paint").hidden=s!=="paint"; $("#panel-voc").hidden=s!=="voc"; $("#wavebox").classList.toggle("two",s==="voc");
 if(s!=="voc") vocStopAll(); else vocFillInputs();
 if(s!=="mic") stopMic(); if(s!=="file") fileStop(true); syncTone(); syncMakeTone();
 syncPaintTone(); S.paintInfo=null;
